@@ -25,9 +25,11 @@ export function ListenPanel({ content }: { content: string }) {
   const indexRef = useRef(0);
   const rateRef = useRef<(typeof RATES)[number]['value']>('1');
   const statusRef = useRef<'idle' | 'playing' | 'paused'>('idle');
+  const held = useRef(false);
 
   useEffect(() => {
     return () => {
+      held.current = true;
       token.current += 1;
       void Speech.stop();
     };
@@ -42,6 +44,7 @@ export function ListenPanel({ content }: { content: string }) {
       setIndex(0);
       return;
     }
+    held.current = false;
     const generation = token.current + 1;
     token.current = generation;
     indexRef.current = start;
@@ -52,7 +55,7 @@ export function ListenPanel({ content }: { content: string }) {
     Speech.speak(text, {
       rate: Number(rateRef.current),
       onDone: () => {
-        if (token.current !== generation) return;
+        if (held.current || token.current !== generation) return;
         const next = start + 1;
         if (next < chunks.length) {
           speakFrom(next);
@@ -64,7 +67,9 @@ export function ListenPanel({ content }: { content: string }) {
         }
       },
       onError: () => {
-        if (token.current !== generation) return;
+        // Web speechSynthesis.cancel() reports the stopped utterance as an error.
+        // Pause already moved the controls; leave them there.
+        if (held.current || token.current !== generation) return;
         statusRef.current = 'idle';
         setStatus('idle');
         setError('This device did not start speech. Check the volume, then try again.');
@@ -73,10 +78,11 @@ export function ListenPanel({ content }: { content: string }) {
   };
 
   const pause = () => {
+    held.current = true;
     token.current += 1;
-    void Speech.stop();
     statusRef.current = 'paused';
     setStatus('paused');
+    void Speech.stop();
   };
 
   const play = () => {
