@@ -2,6 +2,7 @@
   "expo": {
     "name": "DigestLocal",
     "slug": "digestlocal",
+    "owner": "deredo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -49,6 +50,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fadf6963-7bc8-43fb-9a44-bc50fb27e8ca"
+      }
     }
   }
 }
