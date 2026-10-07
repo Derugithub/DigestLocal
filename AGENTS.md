@@ -39,3 +39,12 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Cursor Cloud specific instructions
+
+- Install with `npm ci`. Node.js 22 on the default image meets the Node.js 20+ requirement. The manual EAS workflow pins Node.js 24 and needs `EXPO_TOKEN`; that token is not required to run, test, or typecheck the app.
+- Day-to-day verification is the Expo web dev server. This VM has no iOS or Android simulator.
+- Start it with `EXPO_NO_METRO_LAZY=1 EXPO_NO_TELEMETRY=1 BROWSER=none npx expo start --web --localhost`. Metro serves the app at `http://localhost:8081` (IPv6 localhost). `EXPO_NO_METRO_LAZY=1` keeps the `expo-sqlite` web worker in the bundle graph. With Metro's default lazy graph, web bundling stops on `Worker chunk not found` for `expo-sqlite/web/worker.ts`.
+- `react-native-web` does not implement `Appearance.setColorScheme`. Theme changes on web go through `ThemePreferenceProvider` and the local palette.
+- A browser fetch of an article URL succeeds only when the site sends `Access-Control-Allow-Origin`. `http://localhost` links are valid. Serve `tests/fixtures/harbor.html` with that header to exercise paste → fetch → keep → reader.
+- Checks: `npm test`, `npm run typecheck`, `npm run lint`.
