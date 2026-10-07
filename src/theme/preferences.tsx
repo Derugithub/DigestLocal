@@ -32,6 +32,9 @@ export function ThemePreferenceProvider({
   const scheme: ColorScheme = preference === 'system' ? (system === 'dark' ? 'dark' : 'light') : preference;
 
   useEffect(() => {
+    // react-native-web's Appearance only reads the system scheme. The shelf still
+    // applies light and dark through its own palette.
+    if (typeof Appearance.setColorScheme !== 'function') return;
     Appearance.setColorScheme(preference === 'system' ? 'unspecified' : preference);
   }, [preference]);
 

@@ -12,4 +12,15 @@ config.server.enhanceMiddleware = (middleware) => {
   };
 };
 
+// Dev web bundles are built with lazy bundling off (see EXPO_NO_METRO_LAZY) so the
+// sqlite worker is in the graph. Metro only writes worker URLs when includeAsyncPaths
+// is set, which it ties to lazy mode. Force the URLs so the worker can load.
+const upstreamSerializer = config.serializer.customSerializer;
+config.serializer.customSerializer = (entryPoint, preModules, graph, options) => {
+  return upstreamSerializer(entryPoint, preModules, graph, {
+    ...options,
+    includeAsyncPaths: true,
+  });
+};
+
 module.exports = config;

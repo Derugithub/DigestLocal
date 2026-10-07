@@ -47,7 +47,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web",
+    "web": "EXPO_NO_METRO_LAZY=1 expo start --web",
     "lint": "expo lint",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit"
