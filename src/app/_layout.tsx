@@ -1,15 +1,12 @@
 import '@/global.css';
 
 import {
-  Fraunces_600SemiBold,
-  Fraunces_600SemiBold_Italic,
-} from '@expo-google-fonts/fraunces';
-import { Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold } from '@expo-google-fonts/outfit';
-import {
-  SourceSerif4_400Regular,
-  SourceSerif4_400Regular_Italic,
-  SourceSerif4_600SemiBold,
-} from '@expo-google-fonts/source-serif-4';
+  Inter_400Regular,
+  Inter_400Regular_Italic,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -26,14 +23,11 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Fraunces_600SemiBold,
-    Fraunces_600SemiBold_Italic,
-    SourceSerif4_400Regular,
-    SourceSerif4_400Regular_Italic,
-    SourceSerif4_600SemiBold,
-    Outfit_400Regular,
-    Outfit_500Medium,
-    Outfit_600SemiBold,
+    Inter_400Regular,
+    Inter_400Regular_Italic,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
   });
   const [preference, setPreference] = useState<ThemePreference>('system');
   const [preferenceReady, setPreferenceReady] = useState(false);

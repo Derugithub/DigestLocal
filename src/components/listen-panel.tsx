@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 22, paddingTop: 8, paddingBottom: 28, gap: 16 },
   heading: { marginTop: -6 },
   passage: { borderWidth: 1, borderRadius: 22, padding: 18, gap: 12 },
-  passageText: { fontFamily: Fonts.body, fontSize: 22, lineHeight: 34 },
+  passageText: { fontFamily: Fonts.body, fontSize: 20, lineHeight: 30 },
   row: { flexDirection: 'row', gap: 10 },
   flex: { flex: 1 },
 });

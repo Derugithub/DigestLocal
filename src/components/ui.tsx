@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { renderFontChildren, systemFaceOverride, type FontWeight } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts, type Palette } from '@/theme/palette';
 
@@ -40,21 +41,33 @@ export function Screen({
 type TextVariant = 'display' | 'displayItalic' | 'title' | 'body' | 'bodySemi' | 'ui' | 'uiMedium' | 'label' | 'meta';
 
 const variantStyle: Record<TextVariant, TextStyle> = {
-  display: { fontFamily: Fonts.display, fontSize: 42, lineHeight: 46, letterSpacing: -0.8 },
-  displayItalic: { fontFamily: Fonts.displayItalic, fontSize: 42, lineHeight: 46 },
-  title: { fontFamily: Fonts.display, fontSize: 32, lineHeight: 38, letterSpacing: -0.4 },
-  body: { fontFamily: Fonts.body, fontSize: 19, lineHeight: 31 },
-  bodySemi: { fontFamily: Fonts.bodySemi, fontSize: 19, lineHeight: 31 },
+  display: { fontFamily: Fonts.display, fontSize: 40, lineHeight: 46, letterSpacing: -0.5 },
+  displayItalic: { fontFamily: Fonts.displayItalic, fontSize: 40, lineHeight: 46 },
+  title: { fontFamily: Fonts.display, fontSize: 32, lineHeight: 38, letterSpacing: -0.3 },
+  body: { fontFamily: Fonts.body, fontSize: 17, lineHeight: 26 },
+  bodySemi: { fontFamily: Fonts.bodySemi, fontSize: 17, lineHeight: 26 },
   ui: { fontFamily: Fonts.ui, fontSize: 16, lineHeight: 22 },
   uiMedium: { fontFamily: Fonts.uiMedium, fontSize: 16, lineHeight: 22 },
   label: {
     fontFamily: Fonts.uiSemi,
     fontSize: 12,
     lineHeight: 16,
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
   meta: { fontFamily: Fonts.ui, fontSize: 13, lineHeight: 18 },
+};
+
+const variantWeight: Record<TextVariant, FontWeight> = {
+  display: '700',
+  displayItalic: '400',
+  title: '700',
+  body: '400',
+  bodySemi: '600',
+  ui: '400',
+  uiMedium: '500',
+  label: '600',
+  meta: '400',
 };
 
 export function AppText({
@@ -69,9 +82,13 @@ export function AppText({
   color?: string;
 }) {
   const { colors } = useAppTheme();
+  const weight = variantWeight[variant];
+  const only = typeof children === 'string' ? children : null;
   return (
-    <Text {...rest} style={[variantStyle[variant], { color: color ?? colors.ink }, style]}>
-      {children}
+    <Text
+      {...rest}
+      style={[variantStyle[variant], { color: color ?? colors.ink }, style, only ? systemFaceOverride(only, weight) : null]}>
+      {renderFontChildren(children, weight)}
     </Text>
   );
 }

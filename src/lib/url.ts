@@ -6,6 +6,25 @@ export function siteFromUrl(value: string): string {
   }
 }
 
+export function urlFromClipboard(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match?.[0]) return null;
+  let candidate = match[0];
+  while (/[.,;:!?]$/.test(candidate)) candidate = candidate.slice(0, -1);
+  const open = (candidate.match(/\(/g) ?? []).length;
+  let close = (candidate.match(/\)/g) ?? []).length;
+  while (close > open && candidate.endsWith(')')) {
+    candidate = candidate.slice(0, -1);
+    close -= 1;
+  }
+  try {
+    return normalizeUrl(candidate);
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeUrl(input: string): string {
   const compact = input.trim().split(/\s+/)[0] ?? '';
   if (!compact) {

@@ -38,12 +38,12 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export type ColorScheme = 'light' | 'dark';
 
 export const Fonts = {
-  display: 'Fraunces_600SemiBold',
-  displayItalic: 'Fraunces_600SemiBold_Italic',
-  body: 'SourceSerif4_400Regular',
-  bodyItalic: 'SourceSerif4_400Regular_Italic',
-  bodySemi: 'SourceSerif4_600SemiBold',
-  ui: 'Outfit_400Regular',
-  uiMedium: 'Outfit_500Medium',
-  uiSemi: 'Outfit_600SemiBold',
+  display: 'Inter_700Bold',
+  displayItalic: 'Inter_400Regular_Italic',
+  body: 'Inter_400Regular',
+  bodyItalic: 'Inter_400Regular_Italic',
+  bodySemi: 'Inter_600SemiBold',
+  ui: 'Inter_400Regular',
+  uiMedium: 'Inter_500Medium',
+  uiSemi: 'Inter_600SemiBold',
 } as const;

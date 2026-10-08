@@ -8,6 +8,7 @@ type ArticleRow = {
   title: string;
   site: string;
   content: string;
+  content_html: string | null;
   saved_at: number;
   summary: string | null;
   quiz_json: string | null;
@@ -41,6 +42,7 @@ function mapArticle(row: ArticleRow): Article {
     title: row.title,
     site: row.site,
     content: row.content,
+    contentHtml: row.content_html,
     savedAt: row.saved_at,
     summary: row.summary,
     quiz: parseQuiz(row.quiz_json),
@@ -60,12 +62,17 @@ export async function migrateArticles(db: SQLiteDatabase): Promise<void> {
       title TEXT NOT NULL,
       site TEXT NOT NULL,
       content TEXT NOT NULL,
+      content_html TEXT,
       saved_at INTEGER NOT NULL,
       summary TEXT,
       quiz_json TEXT
     );
     CREATE INDEX IF NOT EXISTS articles_saved_at ON articles (saved_at DESC);
   `);
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(articles)');
+  if (!columns.some((column) => column.name === 'content_html')) {
+    await db.execAsync('ALTER TABLE articles ADD COLUMN content_html TEXT');
+  }
 }
 
 export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[]> {
@@ -99,7 +106,7 @@ export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[
 
 export async function getArticle(db: SQLiteDatabase, id: string): Promise<Article | null> {
   const row = await db.getFirstAsync<ArticleRow>(
-    'SELECT id, url, title, site, content, saved_at, summary, quiz_json FROM articles WHERE id = ?',
+    'SELECT id, url, title, site, content, content_html, saved_at, summary, quiz_json FROM articles WHERE id = ?',
     id,
   );
   return row ? mapArticle(row) : null;
@@ -112,15 +119,25 @@ export async function findArticleIdByUrl(db: SQLiteDatabase, url: string): Promi
 
 export async function insertArticle(
   db: SQLiteDatabase,
-  article: { id: string; url: string; title: string; site: string; content: string; savedAt: number },
+  article: {
+    id: string;
+    url: string;
+    title: string;
+    site: string;
+    content: string;
+    contentHtml: string | null;
+    savedAt: number;
+  },
 ): Promise<void> {
+  const contentHtml = article.contentHtml?.trim() ? article.contentHtml : null;
   await db.runAsync(
-    'INSERT INTO articles (id, url, title, site, content, saved_at, summary, quiz_json) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)',
+    'INSERT INTO articles (id, url, title, site, content, content_html, saved_at, summary, quiz_json) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)',
     article.id,
     article.url,
     article.title,
     article.site,
     article.content,
+    contentHtml,
     article.savedAt,
   );
 }
