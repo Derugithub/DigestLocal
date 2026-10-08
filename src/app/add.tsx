@@ -11,6 +11,7 @@ import { currentPaste, type PasteNotice } from '@/lib/paste-draft';
 import type { ExtractedArticle } from '@/lib/types';
 import { countWords, readingMinutes } from '@/lib/text';
 import { normalizeUrl } from '@/lib/url';
+import { inputFontFamily } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
 
@@ -180,7 +181,12 @@ export default function AddScreen() {
                 editable={!fetching}
                 style={[
                   styles.input,
-                  { color: colors.ink, backgroundColor: colors.elevated, borderColor: colors.line },
+                  {
+                    color: colors.ink,
+                    backgroundColor: colors.elevated,
+                    borderColor: colors.line,
+                    fontFamily: inputFontFamily(url, Fonts.ui),
+                  },
                 ]}
               />
             </View>

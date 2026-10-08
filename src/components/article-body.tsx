@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { blocksFromHtml, type BlockNode, type InlineNode } from '@/lib/article-html';
+import { blocksFromHtml, inlinesToText, type BlockNode, type InlineNode } from '@/lib/article-html';
+import { renderFontRuns, systemFaceOverride, type FontWeight } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts, type Palette } from '@/theme/palette';
 
@@ -42,8 +43,8 @@ function PlainParagraphs({ text }: { text: string }) {
         <Text
           key={`${index}-${paragraph.slice(0, 24)}`}
           selectable
-          style={[styles.paragraph, { color: colors.ink }, index === 0 && styles.lead]}>
-          {paragraph}
+          style={[styles.paragraph, { color: colors.ink }, index === 0 && styles.lead, systemFaceOverride(paragraph, '400')]}>
+          {renderFontRuns(paragraph, '400')}
         </Text>
       ))}
     </View>
@@ -63,9 +64,17 @@ function BlockView({
 
   if (block.type === 'heading') {
     const fontFamily = block.level <= 2 ? Fonts.display : Fonts.bodySemi;
+    const weight: FontWeight = block.level <= 2 ? '700' : '600';
     return (
-      <Text accessibilityRole="header" selectable style={[headingStyle[block.level], { color: colors.ink }]}>
-        {renderInlines(block.inlines, colors, colors.ink, fontFamily)}
+      <Text
+        accessibilityRole="header"
+        selectable
+        style={[
+          headingStyle[block.level],
+          { color: colors.ink },
+          systemFaceOverride(inlinesToText(block.inlines), weight),
+        ]}>
+        {renderInlines(block.inlines, colors, colors.ink, fontFamily, weight)}
       </Text>
     );
   }
@@ -80,8 +89,9 @@ function BlockView({
           lead && styles.lead,
           tone === 'quote' && styles.quoteText,
           { color: colors.ink },
+          systemFaceOverride(inlinesToText(block.inlines), '400'),
         ]}>
-        {renderInlines(block.inlines, colors, colors.ink, fontFamily)}
+        {renderInlines(block.inlines, colors, colors.ink, fontFamily, '400')}
       </Text>
     );
   }
@@ -118,8 +128,8 @@ function BlockView({
   if (block.type === 'pre') {
     return (
       <View style={[styles.pre, { backgroundColor: colors.chip }]}>
-        <Text selectable style={[styles.preText, { color: colors.ink }]}>
-          {block.text}
+        <Text selectable style={[styles.preText, { color: colors.ink }, systemFaceOverride(block.text, '400')]}>
+          {renderFontRuns(block.text, '400')}
         </Text>
       </View>
     );
@@ -128,12 +138,18 @@ function BlockView({
   return <View style={[styles.rule, { backgroundColor: colors.line }]} />;
 }
 
-function renderInlines(nodes: InlineNode[], colors: Palette, color: string, fontFamily: string): ReactNode[] {
+function renderInlines(
+  nodes: InlineNode[],
+  colors: Palette,
+  color: string,
+  fontFamily: string,
+  weight: FontWeight,
+): ReactNode[] {
   return nodes.map((node, index) => {
     if (node.type === 'text') {
       return (
-        <Text key={index} style={{ color, fontFamily }}>
-          {node.text}
+        <Text key={index} style={[{ color, fontFamily }, systemFaceOverride(node.text, weight)]}>
+          {renderFontRuns(node.text, weight)}
         </Text>
       );
     }
@@ -146,22 +162,24 @@ function renderInlines(nodes: InlineNode[], colors: Palette, color: string, font
     }
     if (node.type === 'code') {
       return (
-        <Text key={index} style={[styles.inlineCode, { backgroundColor: colors.chip, color: colors.ink }]}>
-          {node.text}
+        <Text
+          key={index}
+          style={[styles.inlineCode, { backgroundColor: colors.chip, color: colors.ink }, systemFaceOverride(node.text, '400')]}>
+          {renderFontRuns(node.text, '400')}
         </Text>
       );
     }
     if (node.type === 'strong') {
       return (
-        <Text key={index} style={{ color, fontFamily: Fonts.bodySemi }}>
-          {renderInlines(node.children, colors, color, Fonts.bodySemi)}
+        <Text key={index} style={[{ color, fontFamily: Fonts.bodySemi }, systemFaceOverride(inlinesToText(node.children), '600')]}>
+          {renderInlines(node.children, colors, color, Fonts.bodySemi, '600')}
         </Text>
       );
     }
     if (node.type === 'em') {
       return (
-        <Text key={index} style={{ color, fontFamily: Fonts.bodyItalic }}>
-          {renderInlines(node.children, colors, color, Fonts.bodyItalic)}
+        <Text key={index} style={[{ color, fontFamily: Fonts.bodyItalic }, systemFaceOverride(inlinesToText(node.children), '400')]}>
+          {renderInlines(node.children, colors, color, Fonts.bodyItalic, '400')}
         </Text>
       );
     }
@@ -170,8 +188,11 @@ function renderInlines(nodes: InlineNode[], colors: Palette, color: string, font
         key={index}
         accessibilityRole="link"
         onPress={() => openLink(node.href)}
-        style={{ color: colors.accent, fontFamily, textDecorationLine: 'underline' }}>
-        {renderInlines(node.children, colors, colors.accent, fontFamily)}
+        style={[
+          { color: colors.accent, fontFamily, textDecorationLine: 'underline' },
+          systemFaceOverride(inlinesToText(node.children), weight),
+        ]}>
+        {renderInlines(node.children, colors, colors.accent, fontFamily, weight)}
       </Text>
     );
   });
@@ -185,21 +206,21 @@ function openLink(href: string) {
 const headingStyle = StyleSheet.create({
   1: { fontFamily: Fonts.display, fontSize: 28, lineHeight: 34, letterSpacing: -0.3 },
   2: { fontFamily: Fonts.display, fontSize: 24, lineHeight: 30, letterSpacing: -0.2 },
-  3: { fontFamily: Fonts.bodySemi, fontSize: 21, lineHeight: 28 },
-  4: { fontFamily: Fonts.bodySemi, fontSize: 19, lineHeight: 26 },
-  5: { fontFamily: Fonts.bodySemi, fontSize: 18, lineHeight: 26 },
-  6: { fontFamily: Fonts.bodySemi, fontSize: 17, lineHeight: 24 },
+  3: { fontFamily: Fonts.bodySemi, fontSize: 20, lineHeight: 28 },
+  4: { fontFamily: Fonts.bodySemi, fontSize: 18, lineHeight: 26 },
+  5: { fontFamily: Fonts.bodySemi, fontSize: 17, lineHeight: 24 },
+  6: { fontFamily: Fonts.bodySemi, fontSize: 16, lineHeight: 24 },
 });
 
 const styles = StyleSheet.create({
   stack: { gap: 16 },
-  paragraph: { fontFamily: Fonts.body, fontSize: 19, lineHeight: 32 },
-  lead: { fontSize: 21, lineHeight: 34 },
+  paragraph: { fontFamily: Fonts.body, fontSize: 17, lineHeight: 26 },
+  lead: { fontSize: 18, lineHeight: 28 },
   quoteText: { fontFamily: Fonts.bodyItalic },
   quote: { borderLeftWidth: 3, paddingLeft: 14, gap: 12 },
   list: { gap: 10 },
   listItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  marker: { fontFamily: Fonts.uiMedium, fontSize: 16, lineHeight: 32, minWidth: 22 },
+  marker: { fontFamily: Fonts.uiMedium, fontSize: 16, lineHeight: 26, minWidth: 22 },
   listBody: { flex: 1, gap: 8 },
   pre: { borderRadius: 16, padding: 14 },
   preText: { fontFamily: mono, fontSize: 14, lineHeight: 22 },

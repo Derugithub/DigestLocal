@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 22, paddingTop: 8, paddingBottom: 36, gap: 16 },
   heading: { marginTop: -6 },
   card: { borderWidth: 1, borderRadius: 22, padding: 18, gap: 12 },
-  summary: { fontFamily: Fonts.body, fontSize: 18, lineHeight: 30 },
+  summary: { fontFamily: Fonts.body, fontSize: 17, lineHeight: 26 },
   quiz: { gap: 12 },
   prompt: { fontSize: 22, lineHeight: 30 },
   choice: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14 },

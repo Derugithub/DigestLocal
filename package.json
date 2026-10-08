@@ -3,9 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@expo-google-fonts/fraunces": "^0.4.1",
-    "@expo-google-fonts/outfit": "^0.4.3",
-    "@expo-google-fonts/source-serif-4": "^0.4.2",
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo/ui": "~57.0.22",
     "@expo/vector-icons": "^15.0.2",
     "@mozilla/readability": "^0.6.0",

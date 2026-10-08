@@ -9,6 +9,7 @@ import { stagePaste } from '@/lib/paste-draft';
 import type { ArticleListItem } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
 import { urlFromClipboard } from '@/lib/url';
+import { inputFontFamily } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
 
@@ -116,6 +117,7 @@ export default function LibraryScreen() {
                       color: colors.ink,
                       backgroundColor: colors.elevated,
                       borderColor: colors.line,
+                      fontFamily: inputFontFamily(query, Fonts.ui),
                     },
                   ]}
                 />
