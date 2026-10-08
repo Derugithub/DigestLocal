@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Note, Screen } from '@/components/ui';
@@ -7,6 +7,7 @@ import { findArticleIdByUrl, insertArticle } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import { extractArticle } from '@/lib/extract';
 import { fetchPublicHtml } from '@/lib/fetch-page';
+import { currentPaste, type PasteNotice } from '@/lib/paste-draft';
 import type { ExtractedArticle } from '@/lib/types';
 import { countWords, readingMinutes } from '@/lib/text';
 import { normalizeUrl } from '@/lib/url';
@@ -20,12 +21,39 @@ type Phase =
   | { name: 'saving'; url: string; article: ExtractedArticle }
   | { name: 'error'; message: string };
 
+const PASTE_NOTICE: Record<PasteNotice, string> = {
+  empty: 'Nothing on the clipboard. Type a link here.',
+  invalid: 'No link on the clipboard. Type one here.',
+  unavailable: 'The clipboard could not be read. Type a link here.',
+};
+
 export default function AddScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { db, error: databaseError } = useDatabase();
-  const [url, setUrl] = useState('');
+  const [seed] = useState(() => currentPaste());
+  const appliedPaste = useRef(seed?.id ?? 0);
+  const inputRef = useRef<TextInput>(null);
+  const [url, setUrl] = useState(seed?.url ?? '');
+  const [notice, setNotice] = useState<PasteNotice | null>(seed?.notice ?? null);
   const [phase, setPhase] = useState<Phase>({ name: 'edit' });
+
+  useFocusEffect(
+    useCallback(() => {
+      const staged = currentPaste();
+      if (!staged || staged.id === appliedPaste.current) return;
+      appliedPaste.current = staged.id;
+      setUrl(staged.url);
+      setNotice(staged.notice);
+      setPhase({ name: 'edit' });
+    }, []),
+  );
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const fetching = phase.name === 'fetching' || phase.name === 'saving';
 
@@ -61,6 +89,7 @@ export default function AddScreen() {
         title: phase.article.title,
         site: phase.article.site,
         content: phase.article.content,
+        contentHtml: phase.article.contentHtml,
         savedAt: Date.now(),
       });
       router.replace(`/article/${id}`);
@@ -97,7 +126,7 @@ export default function AddScreen() {
           </View>
           <AppText variant="title">Save a page</AppText>
           <AppText variant="ui" color={colors.soft}>
-            Paste a public link. If it is already on the shelf, DigestLocal opens the saved copy and does not use the network.
+            A copied link lands in the field below. If that page is already on the shelf, DigestLocal opens the saved copy and does not use the network.
           </AppText>
 
           <Note
@@ -128,21 +157,33 @@ export default function AddScreen() {
               </AppText>
             </View>
           ) : (
-            <TextInput
-              value={url}
-              onChangeText={setUrl}
-              placeholder="https://"
-              placeholderTextColor={colors.faint}
-              accessibilityLabel="Article URL"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              editable={!fetching}
-              style={[
-                styles.input,
-                { color: colors.ink, backgroundColor: colors.elevated, borderColor: colors.line },
-              ]}
-            />
+            <View style={styles.field}>
+              {notice ? (
+                <AppText variant="ui" color={colors.soft} accessibilityLiveRegion="polite">
+                  {PASTE_NOTICE[notice]}
+                </AppText>
+              ) : null}
+              <TextInput
+                ref={inputRef}
+                value={url}
+                onChangeText={(value) => {
+                  setUrl(value);
+                  if (notice) setNotice(null);
+                }}
+                placeholder="https://"
+                placeholderTextColor={colors.faint}
+                accessibilityLabel="Article URL"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus={notice !== null}
+                keyboardType="url"
+                editable={!fetching}
+                style={[
+                  styles.input,
+                  { color: colors.ink, backgroundColor: colors.elevated, borderColor: colors.line },
+                ]}
+              />
+            </View>
           )}
 
           {phase.name === 'error' ? (
@@ -194,6 +235,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingTop: 12, paddingBottom: 40, gap: 16 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  field: { gap: 16 },
   input: {
     minHeight: 56,
     borderWidth: 1,

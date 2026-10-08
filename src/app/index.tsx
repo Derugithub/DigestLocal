@@ -1,12 +1,14 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Screen } from '@/components/ui';
 import { listArticles } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
+import { stagePaste } from '@/lib/paste-draft';
 import type { ArticleListItem } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
+import { urlFromClipboard } from '@/lib/url';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
 
@@ -17,6 +19,25 @@ export default function LibraryScreen() {
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
+  const pasting = useRef(false);
+
+  const pasteLink = useCallback(async () => {
+    if (pasting.current) return;
+    pasting.current = true;
+    try {
+      // Imported on tap so a development build from before this native module still opens the shelf.
+      const Clipboard = await import('expo-clipboard');
+      const text = await Clipboard.getStringAsync();
+      const found = urlFromClipboard(text);
+      if (found) stagePaste(found, null);
+      else stagePaste('', text.trim() ? 'invalid' : 'empty');
+    } catch {
+      stagePaste('', 'unavailable');
+    } finally {
+      pasting.current = false;
+    }
+    router.push('/add');
+  }, [router]);
 
   const reload = useCallback(async () => {
     if (!db) return;
@@ -80,7 +101,7 @@ export default function LibraryScreen() {
             </AppText>
             {articles.length > 0 ? (
               <>
-                <Button label="Paste a URL" icon="add" onPress={() => router.push('/add')} />
+                <Button label="Paste a URL" icon="add" onPress={() => void pasteLink()} />
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
@@ -110,9 +131,9 @@ export default function LibraryScreen() {
               </AppText>
               <AppText variant="title">The shelf is empty.</AppText>
               <AppText variant="body" color={colors.soft} style={styles.emptyCopy}>
-                Paste a public page. DigestLocal downloads it once, keeps the text here, and can read it aloud or quiz you without a network.
+                Paste a public page. DigestLocal downloads it once, keeps it here, and can read it aloud or quiz you without a network.
               </AppText>
-              <Button label="Paste a URL" icon="add" onPress={() => router.push('/add')} />
+              <Button label="Paste a URL" icon="add" onPress={() => void pasteLink()} />
             </View>
           ) : (
             <AppText variant="ui" color={colors.soft} style={styles.noMatch}>

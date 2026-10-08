@@ -21,7 +21,10 @@ export type Article = {
   url: string;
   title: string;
   site: string;
+  /** Plain text for listening, study, search, and word counts. */
   content: string;
+  /** Sanitized article HTML. Null for articles saved before structured storage. */
+  contentHtml: string | null;
   savedAt: number;
   summary: string | null;
   quiz: Quiz | null;
@@ -41,6 +44,7 @@ export type ExtractedArticle = {
   title: string;
   site: string;
   content: string;
+  contentHtml: string;
   truncated: boolean;
 };
 

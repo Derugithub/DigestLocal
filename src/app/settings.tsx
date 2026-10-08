@@ -53,7 +53,7 @@ export default function SettingsScreen() {
             About
           </AppText>
           <AppText variant="body" color={colors.ink}>
-            DigestLocal is an offline reading shelf. Paste a URL, keep the article text on this device, then read it, listen with the system voice, or generate a summary and quiz locally.
+            DigestLocal is an offline reading shelf. Paste a URL, keep the article on this device, then read it, listen with the system voice, or generate a summary and quiz locally.
           </AppText>
           <AppText variant="ui" color={colors.soft}>
             Summaries and quizzes use the on-device heuristic-v1 engine. That engine can be replaced later with a local model; the results stay in the article record.

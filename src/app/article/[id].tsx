@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ArticleBody } from '@/components/article-body';
 import { ListenPanel } from '@/components/listen-panel';
 import { StudyPanel } from '@/components/study-panel';
 import { AppText, Button, IconButton, LoadingState, Screen, Segmented } from '@/components/ui';
@@ -11,7 +12,6 @@ import { useDatabase } from '@/lib/database';
 import type { Article } from '@/lib/types';
 import { formatSavedDate, readingMinutes } from '@/lib/text';
 import { useAppTheme } from '@/theme/preferences';
-import { Fonts } from '@/theme/palette';
 
 type Mode = 'read' | 'listen' | 'study';
 
@@ -82,8 +82,6 @@ export default function ArticleScreen() {
     );
   }
 
-  const paragraphs = article.content.split(/\n\n+/).map((paragraph) => paragraph.trim()).filter(Boolean);
-
   return (
     <Screen padded={false}>
       <View style={[styles.progressTrack, { backgroundColor: colors.line }]}>
@@ -118,14 +116,7 @@ export default function ArticleScreen() {
             {formatSavedDate(article.savedAt)} · {readingMinutes(article.content)} min read
           </AppText>
           <View style={[styles.rule, { backgroundColor: colors.line }]} />
-          {paragraphs.map((paragraph, index) => (
-            <AppText
-              key={`${index}-${paragraph.slice(0, 24)}`}
-              selectable
-              style={[styles.paragraph, { color: colors.ink }, index === 0 && styles.lead]}>
-              {paragraph}
-            </AppText>
-          ))}
+          <ArticleBody html={article.contentHtml} plain={article.content} baseUrl={article.url} />
           {confirmingDelete ? (
             <View style={styles.deleteRow}>
               <Button label="Confirm remove" variant="danger" onPress={() => void remove()} />
@@ -175,8 +166,6 @@ const styles = StyleSheet.create({
   reader: { paddingHorizontal: 22, paddingTop: 8, gap: 16 },
   title: { fontSize: 34, lineHeight: 40 },
   rule: { height: 1, marginVertical: 4 },
-  paragraph: { fontFamily: Fonts.body, fontSize: 19, lineHeight: 32 },
-  lead: { fontSize: 21, lineHeight: 34 },
   deleteRow: { gap: 10, marginTop: 8 },
   panel: { flex: 1 },
   modeBar: {
