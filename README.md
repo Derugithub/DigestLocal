@@ -66,7 +66,7 @@ Listening, summaries, quizzes, library word counts, and search keep using the pl
 
 The app does not run scripts from the page. Browsers may block the fetch because of CORS. iOS and Android fetch the page directly. Some sites refuse non-browser clients or return a shell that has no article text.
 
-`expo-clipboard` is a native module. Install a new development build before **Paste a URL** can read the clipboard. Until then the button still opens the add screen and asks you to type the link. The reader formatting is JavaScript and loads from Metro on the existing development build.
+`expo-clipboard` is a native module. Install a new development build before **Paste a URL** can read the clipboard. On an older build the button checks for `ExpoClipboard` first and does not import the package, so Metro does not log `Cannot find native module 'ExpoClipboard'`. It opens the add screen, says the clipboard could not be read, and focuses the field. The reader formatting is JavaScript and loads from Metro on the existing development build.
 
 ## Local data
 

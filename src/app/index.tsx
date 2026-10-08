@@ -1,17 +1,30 @@
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Screen } from '@/components/ui';
 import { listArticles } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import { stagePaste } from '@/lib/paste-draft';
+import { readClipboardText } from '@/lib/read-clipboard';
 import type { ArticleListItem } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
 import { urlFromClipboard } from '@/lib/url';
 import { inputFontFamily } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
+
+function clipboardNativeModule(): unknown {
+  // The web build of expo-clipboard does not call requireNativeModule.
+  if (Platform.OS === 'web') return true;
+  try {
+    // Missing modules return null. requireNativeModule would throw and log a red error.
+    return requireOptionalNativeModule('ExpoClipboard');
+  } catch {
+    return null;
+  }
+}
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -26,12 +39,20 @@ export default function LibraryScreen() {
     if (pasting.current) return;
     pasting.current = true;
     try {
-      // Imported on tap so a development build from before this native module still opens the shelf.
-      const Clipboard = await import('expo-clipboard');
-      const text = await Clipboard.getStringAsync();
-      const found = urlFromClipboard(text);
-      if (found) stagePaste(found, null);
-      else stagePaste('', text.trim() ? 'invalid' : 'empty');
+      const text = await readClipboardText({
+        nativeModule: clipboardNativeModule(),
+        readText: async () => {
+          const Clipboard = await import('expo-clipboard');
+          return Clipboard.getStringAsync();
+        },
+      });
+      if (text == null) {
+        stagePaste('', 'unavailable');
+      } else {
+        const found = urlFromClipboard(text);
+        if (found) stagePaste(found, null);
+        else stagePaste('', text.trim() ? 'invalid' : 'empty');
+      }
     } catch {
       stagePaste('', 'unavailable');
     } finally {
