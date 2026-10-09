@@ -56,7 +56,7 @@ The native modules in this app (`expo-sqlite`, `expo-speech`, `expo-font`) are p
 
 ## Saving a page
 
-1. Tap **Paste a URL**. DigestLocal reads the clipboard with `expo-clipboard`. An `http` or `https` link fills the URL field, so **Fetch page** is one more tap. If the clipboard is empty or has no link, the add screen says so and focuses the field for typing.
+1. Tap **Paste a URL**. The add screen opens first, then DigestLocal reads the clipboard with `expo-clipboard`. Opening the screen first keeps Android's first "pasted from clipboard" notice from dropping the navigation and returning to the shelf. An `http` or `https` link fills the URL field, so **Fetch page** is one more tap. If the clipboard is empty or has no link, the add screen says so and focuses the field for typing.
 2. If that URL is already stored, DigestLocal opens the saved article and does not contact the network.
 3. If it is new, the app fetches the HTML once. The add screen labels that request as network use.
 4. `@mozilla/readability` extracts the article. A fallback runs when Readability does not return enough text. The saved copy keeps sanitized HTML (headings, lists, quotes, bold, italic, links, and code) and a plain-text copy. Scripts, styles, and ad blocks are removed. The reader draws the HTML with native text views, not a web view.
