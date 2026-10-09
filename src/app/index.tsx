@@ -198,7 +198,7 @@ export default function LibraryScreen() {
             <AppText variant="label" color={colors.accent}>
               {String(index + 1).padStart(2, '0')}
             </AppText>
-            <AppText variant="bodySemi" style={styles.rowTitle}>
+            <AppText variant="uiMedium" style={styles.rowTitle}>
               {item.title}
             </AppText>
             <AppText variant="meta" color={colors.faint}>
@@ -231,8 +231,8 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.ui,
     fontSize: 16,
   },
-  row: { paddingVertical: 18, borderBottomWidth: 1, gap: 6 },
-  rowTitle: { fontSize: 22, lineHeight: 28 },
+  row: { paddingVertical: 10, borderBottomWidth: 1, gap: 3 },
+  rowTitle: { fontSize: 17, lineHeight: 22 },
   empty: { paddingTop: 36, gap: 16, position: 'relative' },
   watermark: { position: 'absolute', top: 8, right: 0, fontSize: 64, lineHeight: 70 },
   emptyCopy: { maxWidth: 460 },
