@@ -15,10 +15,8 @@
     "android": {
       "package": "app.digestlocal.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#2A2A2A",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#241C16",
+        "foregroundImage": "./assets/images/adaptive-icon.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -41,9 +39,12 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#2A2A2A",
+          "backgroundColor": "#241C16",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 160
+          "imageWidth": 600,
+          "dark": {
+            "backgroundColor": "#241C16"
+          }
         }
       ]
     ],

@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Screen } from '@/components/ui';
 import { listArticles } from '@/lib/articles';
@@ -34,31 +34,56 @@ export default function LibraryScreen() {
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
   const pasting = useRef(false);
+  const pasteSession = useRef(0);
 
-  const pasteLink = useCallback(async () => {
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      // The first clipboard read can background the activity. Come back to the add screen.
+      if (next === 'active' && pasting.current) router.navigate('/add');
+    });
+    return () => subscription.remove();
+  }, [router]);
+
+  const pasteLink = useCallback(() => {
     if (pasting.current) return;
     pasting.current = true;
-    try {
-      const text = await readClipboardText({
-        nativeModule: clipboardNativeModule(),
-        readText: async () => {
-          const Clipboard = await import('expo-clipboard');
-          return Clipboard.getStringAsync();
-        },
-      });
-      if (text == null) {
-        stagePaste('', 'unavailable');
-      } else {
-        const found = urlFromClipboard(text);
-        if (found) stagePaste(found, null);
-        else stagePaste('', text.trim() ? 'invalid' : 'empty');
-      }
-    } catch {
-      stagePaste('', 'unavailable');
-    } finally {
-      pasting.current = false;
-    }
-    router.push('/add');
+    const session = pasteSession.current + 1;
+    pasteSession.current = session;
+    // Land on the add screen before Android shows "pasted from clipboard".
+    // A navigation started while that notice has focus is dropped, so the first tap used to return home.
+    stagePaste('', null);
+    const showAdd = () => {
+      if (pasteSession.current !== session) return;
+      router.navigate('/add');
+    };
+    showAdd();
+    requestAnimationFrame(() => {
+      void (async () => {
+        try {
+          const text = await readClipboardText({
+            nativeModule: clipboardNativeModule(),
+            readText: async () => {
+              const Clipboard = await import('expo-clipboard');
+              return Clipboard.getStringAsync();
+            },
+          });
+          if (pasteSession.current !== session) return;
+          if (text == null) stagePaste('', 'unavailable');
+          else {
+            const found = urlFromClipboard(text);
+            if (found) stagePaste(found, null);
+            else stagePaste('', text.trim() ? 'invalid' : 'empty');
+          }
+        } catch {
+          if (pasteSession.current === session) stagePaste('', 'unavailable');
+        } finally {
+          if (pasteSession.current !== session) return;
+          showAdd();
+          setTimeout(showAdd, 300);
+          pasting.current = false;
+        }
+      })();
+    });
   }, [router]);
 
   const reload = useCallback(async () => {

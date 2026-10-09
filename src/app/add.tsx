@@ -7,7 +7,7 @@ import { findArticleIdByUrl, insertArticle } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import { extractArticle } from '@/lib/extract';
 import { fetchPublicHtml } from '@/lib/fetch-page';
-import { currentPaste, type PasteNotice } from '@/lib/paste-draft';
+import { currentPaste, subscribePaste, type PasteDraft, type PasteNotice } from '@/lib/paste-draft';
 import type { ExtractedArticle } from '@/lib/types';
 import { countWords, readingMinutes } from '@/lib/text';
 import { normalizeUrl } from '@/lib/url';
@@ -39,15 +39,25 @@ export default function AddScreen() {
   const [notice, setNotice] = useState<PasteNotice | null>(seed?.notice ?? null);
   const [phase, setPhase] = useState<Phase>({ name: 'edit' });
 
+  const applyPaste = useCallback((staged: PasteDraft) => {
+    if (staged.id === appliedPaste.current) return;
+    appliedPaste.current = staged.id;
+    setUrl(staged.url);
+    setNotice(staged.notice);
+    setPhase({ name: 'edit' });
+  }, []);
+
+  useEffect(() => {
+    const staged = currentPaste();
+    if (staged) applyPaste(staged);
+    return subscribePaste(applyPaste);
+  }, [applyPaste]);
+
   useFocusEffect(
     useCallback(() => {
       const staged = currentPaste();
-      if (!staged || staged.id === appliedPaste.current) return;
-      appliedPaste.current = staged.id;
-      setUrl(staged.url);
-      setNotice(staged.notice);
-      setPhase({ name: 'edit' });
-    }, []),
+      if (staged) applyPaste(staged);
+    }, [applyPaste]),
   );
 
   useEffect(() => {
