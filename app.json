@@ -15,8 +15,9 @@
     "android": {
       "package": "app.digestlocal.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#241C16",
-        "foregroundImage": "./assets/images/adaptive-icon.png"
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -42,10 +43,9 @@
           "backgroundColor": "#FFFFFF",
           "image": "./assets/images/splash-icon.png",
           "dark": {
-            "image": "./assets/images/splash-icon-dark.png",
             "backgroundColor": "#241C16"
           },
-          "imageWidth": 600
+          "imageWidth": 200
         }
       ]
     ],
