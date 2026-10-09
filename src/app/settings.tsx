@@ -56,7 +56,7 @@ export default function SettingsScreen() {
             DigestLocal is an offline reading shelf. Paste a URL, keep the article on this device, then read it, listen with the system voice, or generate a summary and quiz locally.
           </AppText>
           <AppText variant="ui" color={colors.soft}>
-            Summaries and quizzes use the on-device heuristic-v1 engine. That engine can be replaced later with a local model; the results stay in the article record.
+            Summaries and quizzes use the on-device heuristic-v2 engine. Questions ask what an idea means, why it matters, how ideas relate, and what the main points are. The engine does not call a language model. A later on-device model can replace it; the results stay in the article record.
           </AppText>
           <AppText variant="meta" color={colors.faint}>
             Version {version} · No account · No cloud library

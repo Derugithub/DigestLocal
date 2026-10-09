@@ -1,4 +1,4 @@
-export type QuizKind = 'cloze' | 'attribution';
+export type QuizKind = 'why' | 'meaning' | 'relation' | 'takeaway';
 
 export type QuizQuestion = {
   id: string;

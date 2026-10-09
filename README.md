@@ -14,7 +14,7 @@ There is no account, no custom backend, and no cloud sync.
 - Readability-style extraction into sanitized HTML for the reader, plus plain text for listening, study, search, and word counts
 - Reader that keeps headings, lists, quotes, and inline formatting
 - Listen mode using the operating system speech synthesizer (`expo-speech`), with play and pause
-- On-device extractive summary and multiple-choice quiz (`heuristic-v1`), stored on the article
+- On-device extractive summary and concept quiz (`heuristic-v2`), stored on the article
 - A study-engine interface so a later on-device model can replace the heuristic without changing storage
 - Light, dark, and system themes
 - Settings with the theme control, a short about note, and a network-use note
@@ -90,7 +90,7 @@ Theme choice is stored separately with `expo-sqlite/kv-store`. Nothing in this s
 
 ## Summary and quiz
 
-`src/lib/study.ts` exports `getStudyEngine()`. The current engine, `heuristic-v1`, ranks sentences on the device and writes a short extractive summary plus up to four multiple-choice questions. Generating either result stores both on the article. A later on-device model can replace `getStudyEngine()`; screens already persist whatever summary string and quiz JSON the engine returns.
+`src/lib/study.ts` exports `getStudyEngine()`. The current engine, `heuristic-v2`, ranks sentences on the device and writes a short extractive summary plus a multiple-choice quiz. The number of questions follows how many main points the article has, from 2 up to 8 when the text supports it. Questions ask why something is so, what an idea means, how ideas relate, or which statement is a main point. They are not fill-in-the-blank or “which passage appears” checks. Generating either result stores both on the article. The engine does not call a language model. A later on-device model can replace `getStudyEngine()`; screens already persist whatever summary string and quiz JSON the engine returns.
 
 ## Listening
 
