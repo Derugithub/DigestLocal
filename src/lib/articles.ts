@@ -75,24 +75,24 @@ export async function migrateArticles(db: SQLiteDatabase): Promise<void> {
   }
 }
 
-export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[]> {
-  const rows = await db.getAllAsync<ListRow>(`
-    SELECT
-      id,
-      url,
-      title,
-      site,
-      saved_at,
-      CASE
-        WHEN trim(content) = '' THEN 0
-        ELSE length(trim(replace(content, char(10), ' ')))
-          - length(replace(trim(replace(content, char(10), ' ')), ' ', ''))
-          + 1
-      END AS word_count,
-      CASE WHEN summary IS NOT NULL AND length(trim(summary)) > 0 THEN 1 ELSE 0 END AS has_summary
-    FROM articles
-    ORDER BY saved_at DESC
-  `);
+const ARTICLE_LIST_SQL = `
+  SELECT
+    id,
+    url,
+    title,
+    site,
+    saved_at,
+    CASE
+      WHEN trim(content) = '' THEN 0
+      ELSE length(trim(replace(content, char(10), ' ')))
+        - length(replace(trim(replace(content, char(10), ' ')), ' ', ''))
+        + 1
+    END AS word_count,
+    CASE WHEN summary IS NOT NULL AND length(trim(summary)) > 0 THEN 1 ELSE 0 END AS has_summary
+  FROM articles
+`;
+
+function mapList(rows: ListRow[]): ArticleListItem[] {
   return rows.map((row) => ({
     id: row.id,
     url: row.url,
@@ -102,6 +102,44 @@ export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[
     wordCount: row.word_count,
     hasSummary: row.has_summary === 1,
   }));
+}
+
+/** LIKE pattern that matches a substring, with `%`, `_`, and `\` treated as literal. */
+export function likeContainsPattern(query: string): string {
+  const escaped = query.trim().replace(/[\\%_]/g, (char) => `\\${char}`);
+  return `%${escaped}%`;
+}
+
+export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[]> {
+  const rows = await db.getAllAsync<ListRow>(`${ARTICLE_LIST_SQL} ORDER BY saved_at DESC`);
+  return mapList(rows);
+}
+
+/**
+ * Ids whose plain-text body contains the query. Title, site, HTML, summary, and quiz are not scanned.
+ * SQLite LIKE is case-insensitive for Latin letters.
+ */
+export async function searchArticleIdsByBody(db: SQLiteDatabase, query: string): Promise<Set<string>> {
+  const trimmed = query.trim();
+  if (!trimmed) return new Set();
+  const rows = await db.getAllAsync<{ id: string }>(
+    "SELECT id FROM articles WHERE content LIKE ? ESCAPE '\\'",
+    likeContainsPattern(trimmed),
+  );
+  return new Set(rows.map((row) => row.id));
+}
+
+export function mergeShelfSearch(
+  articles: ArticleListItem[],
+  query: string,
+  bodyIds: ReadonlySet<string> | null,
+): ArticleListItem[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return articles;
+  return articles.filter(
+    (article) =>
+      `${article.title} ${article.site}`.toLowerCase().includes(needle) || (bodyIds?.has(article.id) ?? false),
+  );
 }
 
 export async function getArticle(db: SQLiteDatabase, id: string): Promise<Article | null> {

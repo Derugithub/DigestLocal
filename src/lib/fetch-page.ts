@@ -4,6 +4,8 @@ import { normalizeUrl } from '@/lib/url';
 
 const TIMEOUT_MS = 20_000;
 
+export const DIGEST_USER_AGENT = 'DigestLocal/1.0 (offline article reader)';
+
 function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
 }
@@ -17,7 +19,7 @@ export async function fetchPublicHtml(rawUrl: string): Promise<{ html: string; u
     'Accept-Language': 'en',
   };
   if (Platform.OS !== 'web') {
-    headers['User-Agent'] = 'DigestLocal/1.0 (offline article reader)';
+    headers['User-Agent'] = DIGEST_USER_AGENT;
   }
 
   try {

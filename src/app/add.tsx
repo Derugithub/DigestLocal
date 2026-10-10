@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Note, Screen } from '@/components/ui';
+import { deleteArticleImages, storeArticleImages } from '@/lib/article-images';
 import { findArticleIdByUrl, insertArticle } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import { extractArticle } from '@/lib/extract';
@@ -18,14 +19,15 @@ import { Fonts } from '@/theme/palette';
 type Phase =
   | { name: 'edit' }
   | { name: 'fetching' }
-  | { name: 'preview'; url: string; article: ExtractedArticle }
-  | { name: 'saving'; url: string; article: ExtractedArticle }
+  | { name: 'preview'; url: string; article: ExtractedArticle; id: string }
+  | { name: 'saving'; url: string; article: ExtractedArticle; id: string }
   | { name: 'error'; message: string };
 
 const PASTE_NOTICE: Record<PasteNotice, string> = {
   empty: 'Nothing on the clipboard. Type a link here.',
   invalid: 'No link on the clipboard. Type one here.',
   unavailable: 'The clipboard could not be read. Type a link here.',
+  share: 'No link in that share. Type one here.',
 };
 
 export default function AddScreen() {
@@ -38,14 +40,28 @@ export default function AddScreen() {
   const [url, setUrl] = useState(seed?.url ?? '');
   const [notice, setNotice] = useState<PasteNotice | null>(seed?.notice ?? null);
   const [phase, setPhase] = useState<Phase>({ name: 'edit' });
+  const alive = useRef(true);
+  const request = useRef(0);
+  const pendingId = useRef<string | null>(null);
+  const savedId = useRef<string | null>(null);
+
+  const releasePending = useCallback(() => {
+    const id = pendingId.current;
+    if (id && savedId.current !== id) {
+      deleteArticleImages(id);
+      pendingId.current = null;
+    }
+  }, []);
 
   const applyPaste = useCallback((staged: PasteDraft) => {
     if (staged.id === appliedPaste.current) return;
     appliedPaste.current = staged.id;
+    request.current += 1;
+    releasePending();
     setUrl(staged.url);
     setNotice(staged.notice);
     setPhase({ name: 'edit' });
-  }, []);
+  }, [releasePending]);
 
   useEffect(() => {
     const staged = currentPaste();
@@ -66,22 +82,46 @@ export default function AddScreen() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      const id = pendingId.current;
+      if (id && savedId.current !== id) deleteArticleImages(id);
+    };
+  }, []);
+
   const fetching = phase.name === 'fetching' || phase.name === 'saving';
 
   const submit = async () => {
     if (!db || fetching) return;
+    releasePending();
+    const token = ++request.current;
     setPhase({ name: 'fetching' });
     try {
       const normalized = normalizeUrl(url);
       const existing = await findArticleIdByUrl(db, normalized);
+      if (!alive.current || token !== request.current) return;
       if (existing) {
         router.replace(`/article/${existing}`);
         return;
       }
       const page = await fetchPublicHtml(normalized);
+      if (!alive.current || token !== request.current) return;
       const article = extractArticle(page.html, page.finalUrl || page.url);
-      setPhase({ name: 'preview', url: normalized, article: { ...article, site: article.site } });
+      const id = createId();
+      pendingId.current = id;
+      const pageUrl = page.finalUrl || page.url;
+      const contentHtml = await storeArticleImages(id, article.contentHtml, pageUrl);
+      if (!alive.current || token !== request.current) {
+        if (savedId.current !== id) deleteArticleImages(id);
+        if (pendingId.current === id) pendingId.current = null;
+        return;
+      }
+      setPhase({ name: 'preview', url: normalized, id, article: { ...article, contentHtml } });
     } catch (error) {
+      releasePending();
+      if (!alive.current || token !== request.current) return;
       setPhase({
         name: 'error',
         message: error instanceof Error ? error.message : 'Could not save that page.',
@@ -91,19 +131,20 @@ export default function AddScreen() {
 
   const save = async () => {
     if (!db || phase.name !== 'preview') return;
-    setPhase({ name: 'saving', url: phase.url, article: phase.article });
+    const draft = phase;
+    setPhase({ name: 'saving', url: draft.url, article: draft.article, id: draft.id });
     try {
-      const id = createId();
       await insertArticle(db, {
-        id,
-        url: phase.url,
-        title: phase.article.title,
-        site: phase.article.site,
-        content: phase.article.content,
-        contentHtml: phase.article.contentHtml,
+        id: draft.id,
+        url: draft.url,
+        title: draft.article.title,
+        site: draft.article.site,
+        content: draft.article.content,
+        contentHtml: draft.article.contentHtml,
         savedAt: Date.now(),
       });
-      router.replace(`/article/${id}`);
+      savedId.current = draft.id;
+      router.replace(`/article/${draft.id}`);
     } catch (error) {
       setPhase({
         name: 'error',
@@ -145,8 +186,8 @@ export default function AddScreen() {
             kicker={phase.name === 'fetching' ? 'Network in use' : 'Network'}
             body={
               phase.name === 'fetching'
-                ? 'Downloading this page once. The text will be stored in the local library.'
-                : 'DigestLocal contacts the site only when this URL is new. Reading, listening, summaries, and quizzes stay on this device.'
+                ? 'Downloading this page and its article images once. The text and images will stay on this device.'
+                : 'DigestLocal contacts the site only when this URL is new. That fetch downloads the page and its article images. Reading, listening, summaries, and quizzes stay on this device.'
             }
           />
 
@@ -164,7 +205,7 @@ export default function AddScreen() {
                 {excerpt(phase.article.content)}
               </AppText>
               <AppText variant="meta" color={colors.soft}>
-                Downloaded once. Keeping it writes to SQLite on this device and does not use the network.
+                Downloaded once, including article images. Keeping this writes the text to SQLite and the images on this device. It does not use the network.
               </AppText>
             </View>
           ) : (
@@ -218,7 +259,10 @@ export default function AddScreen() {
               <Button
                 label="Discard"
                 variant="secondary"
-                onPress={() => setPhase({ name: 'edit' })}
+                onPress={() => {
+                  releasePending();
+                  setPhase({ name: 'edit' });
+                }}
                 disabled={phase.name === 'saving'}
               />
             </View>

@@ -1,7 +1,9 @@
-import { useMemo, type ReactNode } from 'react';
+import { Image } from 'expo-image';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { blocksFromHtml, inlinesToText, type BlockNode, type InlineNode } from '@/lib/article-html';
+import { blocksFromHtml, inlinesToText, type BlockNode, type FigureBlock, type InlineNode } from '@/lib/article-html';
+import { localImageUri } from '@/lib/article-images';
 import { renderFontRuns, systemFaceOverride, type FontWeight } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts, type Palette } from '@/theme/palette';
@@ -12,10 +14,12 @@ export function ArticleBody({
   html,
   plain,
   baseUrl,
+  articleId,
 }: {
   html: string | null;
   plain: string;
   baseUrl: string;
+  articleId: string;
 }) {
   const blocks = useMemo(() => (html?.trim() ? blocksFromHtml(html, baseUrl) : []), [baseUrl, html]);
   if (blocks.length === 0) return <PlainParagraphs text={plain} />;
@@ -24,7 +28,7 @@ export function ArticleBody({
   return (
     <View style={styles.stack}>
       {blocks.map((block, index) => (
-        <BlockView key={index} block={block} lead={index === leadIndex} tone="body" />
+        <BlockView key={index} block={block} lead={index === leadIndex} tone="body" articleId={articleId} />
       ))}
     </View>
   );
@@ -55,10 +59,12 @@ function BlockView({
   block,
   lead,
   tone,
+  articleId,
 }: {
   block: BlockNode;
   lead: boolean;
   tone: 'body' | 'quote';
+  articleId: string;
 }) {
   const { colors } = useAppTheme();
 
@@ -106,7 +112,7 @@ function BlockView({
             </Text>
             <View style={styles.listBody}>
               {item.blocks.map((child, childIndex) => (
-                <BlockView key={childIndex} block={child} lead={false} tone={tone} />
+                <BlockView key={childIndex} block={child} lead={false} tone={tone} articleId={articleId} />
               ))}
             </View>
           </View>
@@ -119,7 +125,7 @@ function BlockView({
     return (
       <View style={[styles.quote, { borderLeftColor: colors.accent }]}>
         {block.blocks.map((child, index) => (
-          <BlockView key={index} block={child} lead={false} tone="quote" />
+          <BlockView key={index} block={child} lead={false} tone="quote" articleId={articleId} />
         ))}
       </View>
     );
@@ -135,7 +141,54 @@ function BlockView({
     );
   }
 
+  if (block.type === 'figure') return <FigureView block={block} articleId={articleId} />;
+
   return <View style={[styles.rule, { backgroundColor: colors.line }]} />;
+}
+
+function FigureView({ block, articleId }: { block: FigureBlock; articleId: string }) {
+  const { colors } = useAppTheme();
+  const uri = localImageUri(articleId, block.src);
+  const [failed, setFailed] = useState(!uri);
+  const [ratio, setRatio] = useState(() =>
+    block.width && block.height ? block.width / block.height : 3 / 2,
+  );
+  const caption = block.caption.length > 0;
+
+  return (
+    <View style={styles.figure}>
+      {failed || !uri ? (
+        <View style={[styles.fallback, { backgroundColor: colors.chip }]}>
+          <Text style={[styles.fallbackLabel, { color: colors.soft }]}>Image unavailable</Text>
+          {block.alt ? (
+            <Text style={[styles.fallbackAlt, { color: colors.faint }]} numberOfLines={3}>
+              {block.alt}
+            </Text>
+          ) : null}
+        </View>
+      ) : (
+        <Image
+          source={{ uri }}
+          contentFit="contain"
+          accessibilityLabel={block.alt || 'Article image'}
+          style={[styles.image, { aspectRatio: ratio }]}
+          onLoad={(event) => {
+            const width = event.source.width;
+            const height = event.source.height;
+            if (width > 0 && height > 0) setRatio(width / height);
+          }}
+          onError={() => setFailed(true)}
+        />
+      )}
+      {caption ? (
+        <Text
+          selectable
+          style={[styles.caption, { color: colors.soft }, systemFaceOverride(inlinesToText(block.caption), '400')]}>
+          {renderInlines(block.caption, colors, colors.soft, Fonts.body, '400')}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
 
 function renderInlines(
@@ -226,4 +279,10 @@ const styles = StyleSheet.create({
   preText: { fontFamily: mono, fontSize: 14, lineHeight: 22 },
   inlineCode: { fontFamily: mono, fontSize: 16 },
   rule: { height: 1, marginVertical: 2 },
+  figure: { width: '100%', gap: 8 },
+  image: { width: '100%', borderRadius: 12 },
+  fallback: { borderRadius: 16, padding: 16, gap: 6, minHeight: 88, justifyContent: 'center' },
+  fallbackLabel: { fontFamily: Fonts.body, fontSize: 15, lineHeight: 22 },
+  fallbackAlt: { fontFamily: Fonts.body, fontSize: 14, lineHeight: 20 },
+  caption: { fontFamily: Fonts.body, fontSize: 14, lineHeight: 20 },
 });

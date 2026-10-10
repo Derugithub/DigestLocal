@@ -38,6 +38,24 @@ test('keeps reader structure and strips active content', () => {
   assert.equal((article.content.match(/second shelf/g) ?? []).length, 1);
 });
 
+test('keeps an in-content figure through extraction', () => {
+  const words = Array.from({ length: 80 }, (_, index) => `harbor${index}`).join(' ');
+  const html = `<!doctype html><html><head><title>Pier notes</title></head><body><article>
+    <h1>Pier notes</h1>
+    <figure>
+      <img src="/photos/pier.jpg" alt="The pier" width="800" height="400">
+      <figcaption>Morning <em>light</em> on the pier</figcaption>
+    </figure>
+    <p>${words}</p>
+  </article></body></html>`;
+  const article = extractArticle(html, 'https://harbor.example/notes/ledger');
+  assert.match(article.contentHtml, /<figure><img src="https:\/\/harbor\.example\/photos\/pier\.jpg"/);
+  assert.match(article.contentHtml, /<figcaption>Morning <em>light<\/em> on the pier<\/figcaption>/);
+  assert.match(article.content, /Morning light on the pier/);
+  assert.match(article.content, /harbor79/);
+  assert.doesNotMatch(article.content, /The pier/);
+});
+
 test('rejects a page without article text', () => {
   assert.throws(
     () => extractArticle('<html><title>Empty</title><body><nav>Menu</nav></body></html>', 'https://example.com/empty'),

@@ -8,12 +8,15 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { ShareIntentProvider } from 'expo-share-intent';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
+import { IncomingShare } from '@/components/incoming-share';
 import { DatabaseProvider } from '@/lib/database';
 import { isThemePreference, ThemePreferenceProvider, THEME_KEY, useAppTheme } from '@/theme/preferences';
 import type { ThemePreference } from '@/theme/palette';
@@ -62,11 +65,18 @@ export default function RootLayout() {
   if ((!fontsLoaded && !fontError) || !preferenceReady) return null;
 
   return (
-    <ThemePreferenceProvider preference={preference} onChange={setPreference}>
-      <DatabaseProvider>
-        <ThemedNavigation />
-      </DatabaseProvider>
-    </ThemePreferenceProvider>
+    <ShareIntentProvider
+      options={{
+        // The default clears a share when Android pauses the activity on the way in.
+        resetOnBackground: false,
+        disabled: Platform.OS === 'web',
+      }}>
+      <ThemePreferenceProvider preference={preference} onChange={setPreference}>
+        <DatabaseProvider>
+          <ThemedNavigation />
+        </DatabaseProvider>
+      </ThemePreferenceProvider>
+    </ShareIntentProvider>
   );
 }
 
@@ -92,6 +102,7 @@ function ThemedNavigation() {
         },
       }}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <IncomingShare />
       <Stack
         screenOptions={{
           headerShown: false,

@@ -43,8 +43,8 @@ export default function SettingsScreen() {
             Network
           </AppText>
           <Note
-            kicker="One download"
-            body="The only network use is the optional fetch when you save a new public page. DigestLocal does not sync, sign in, or send saved text anywhere. Reading, listening, summaries, and quizzes use the copy in the local SQLite database."
+            kicker="One fetch"
+            body="The only network use is the optional fetch when you save a new public page. That download includes the page and its article images. DigestLocal does not sync, sign in, or send saved text anywhere. Reading, listening, summaries, and quizzes use the copy on this device and do not download images again."
           />
         </View>
 
