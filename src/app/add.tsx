@@ -26,6 +26,7 @@ const PASTE_NOTICE: Record<PasteNotice, string> = {
   empty: 'Nothing on the clipboard. Type a link here.',
   invalid: 'No link on the clipboard. Type one here.',
   unavailable: 'The clipboard could not be read. Type a link here.',
+  share: 'No link in that share. Type one here.',
 };
 
 export default function AddScreen() {

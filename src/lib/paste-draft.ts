@@ -1,4 +1,4 @@
-export type PasteNotice = 'empty' | 'invalid' | 'unavailable';
+export type PasteNotice = 'empty' | 'invalid' | 'unavailable' | 'share';
 
 export type PasteDraft = {
   id: number;

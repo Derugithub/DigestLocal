@@ -40,12 +40,23 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FFFFFF",
+          "backgroundColor": "#F7F2EA",
           "image": "./assets/images/splash-icon.png",
           "dark": {
-            "backgroundColor": "#241C16"
+            "backgroundColor": "#2A2A2A"
           },
           "imageWidth": 200
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": ["text/plain"],
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1
+          }
         }
       ]
     ],

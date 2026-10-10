@@ -4,11 +4,13 @@
 
 DigestLocal is an Expo React Native app for offline reading. You paste a public URL, the app downloads that page once, extracts the article text, and stores it in a SQLite database on the device. After that, reading, text-to-speech, summaries, and quizzes use the saved copy.
 
-There is no account, no custom backend, and no cloud sync.
+There is no account, no custom backend, and no cloud sync. You can also share a link from another app.
 
 ## Features
 
 - Library of saved articles, with title, site, and saved date
+- Search over the saved title, the site name, and the plain-text body
+- Share a link from another app into the add screen
 - Empty shelf state with a control to paste a URL
 - One-time fetch of a public HTML page, with a visible label while the network is in use
 - Readability-style extraction into sanitized HTML for the reader, plus plain text for listening, study, search, and word counts
@@ -62,9 +64,29 @@ The native modules in this app (`expo-sqlite`, `expo-speech`, `expo-font`) are p
 4. `@mozilla/readability` extracts the article. A fallback runs when Readability does not return enough text. The saved copy keeps sanitized HTML (headings, lists, quotes, bold, italic, links, and code) and a plain-text copy. Scripts, styles, and ad blocks are removed. The reader draws the HTML with native text views, not a web view.
 5. The title, site, plain text, HTML, URL, and timestamp are written to SQLite. Saving the preview does not start another request.
 
-Listening, summaries, quizzes, library word counts, and search keep using the plain text. Articles saved before structured HTML existed have an empty HTML column and still open as plain paragraphs.
+Listening, summaries, quizzes, and library word counts keep using the plain text. Articles saved before structured HTML existed have an empty HTML column and still open as plain paragraphs.
 
 The app does not run scripts from the page. Browsers may block the fetch because of CORS. iOS and Android fetch the page directly. Some sites refuse non-browser clients or return a shell that has no article text.
+
+## Search
+
+Shelf search matches a saved article when the query is a substring of any of these:
+
+- the title
+- the site name
+- the plain-text body in `articles.content`
+
+Title and site stay in the list query and are matched in memory with `toLowerCase`, so that check is case-insensitive for the letters JavaScript folds. The body is not loaded with the list. A SQLite `LIKE` on `content` returns the matching ids. `%`, `_`, and `\` in the query are escaped and matched as literal characters. SQLite `LIKE` is case-insensitive for Latin letters.
+
+Search does not look at `content_html`, `summary`, or `quiz_json`.
+
+`expo-sqlite` includes FTS5. DigestLocal uses `LIKE` so a query can match the middle of a word, which is how title and site search already worked, and so the plain-text column does not need a second index.
+
+## Share a link
+
+From another app, share text to DigestLocal. The add screen opens with the first `http` or `https` URL from that share already in the field. **Fetch page** and **Keep on this device** then work the same way as **Paste a URL**. If the share has no link, the add screen says so and focuses the field. Cold start and warm start both land on that screen.
+
+Android registers `android.intent.action.SEND` for `text/plain`. iOS adds a share extension for text, web URLs, and web pages. Both come from the `expo-share-intent` config plugin (SDK 57). The extension only hands the text to DigestLocal. It does not download the page. Sharing needs a new native build. Expo Go cannot receive the share.
 
 `expo-clipboard` is a native module. Install a new development build before **Paste a URL** can read the clipboard. On an older build the button checks for `ExpoClipboard` first and does not import the package, so Metro does not log `Cannot find native module 'ExpoClipboard'`. It opens the add screen, says the clipboard could not be read, and focuses the field. The reader formatting is JavaScript and loads from Metro on the existing development build.
 
@@ -116,11 +138,13 @@ eas build --platform android --profile <preview|development|production> --non-in
 
 The workflow needs the `EXPO_TOKEN` secret. This repository does not contain an EAS project id. Run `eas init` and link the project before a non-interactive build can succeed.
 
+Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode. Those colors, and the share target, are native configuration. They show up on the next EAS or development build. Search is JavaScript and does not add a native module.
+
 ## Project structure
 
 ```text
-src/app/            Library, add, reader, and settings routes
-src/components/     Shared UI, listen, and study panels
+src/app/            Library, add, reader, settings, and the native share redirect
+src/components/     Shared UI, listen, study, and incoming share
 src/lib/            SQLite, fetch, extraction, and the study engine
 src/theme/          Light and dark palettes
 tests/              Extraction, URL, and study tests

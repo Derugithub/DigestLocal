@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Screen } from '@/components/ui';
-import { listArticles } from '@/lib/articles';
+import { listArticles, mergeShelfSearch, searchArticleIdsByBody } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import { stagePaste } from '@/lib/paste-draft';
 import { readClipboardText } from '@/lib/read-clipboard';
@@ -33,6 +33,7 @@ export default function LibraryScreen() {
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
+  const [bodyMatch, setBodyMatch] = useState<{ needle: string; ids: ReadonlySet<string> } | null>(null);
   const pasting = useRef(false);
   const pasteSession = useRef(0);
 
@@ -100,6 +101,23 @@ export default function LibraryScreen() {
     }, [db, reload]),
   );
 
+  const needle = query.trim();
+
+  useEffect(() => {
+    if (!db || !needle) return;
+    let cancelled = false;
+    searchArticleIdsByBody(db, needle)
+      .then((ids) => {
+        if (!cancelled) setBodyMatch({ needle, ids });
+      })
+      .catch(() => {
+        if (!cancelled) setBodyMatch({ needle, ids: new Set() });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [articles, db, needle]);
+
   if (error) {
     return (
       <Screen>
@@ -115,10 +133,7 @@ export default function LibraryScreen() {
 
   if (!db || !ready) return <LoadingState label="Opening the shelf" />;
 
-  const needle = query.trim().toLowerCase();
-  const visible = needle
-    ? articles.filter((article) => `${article.title} ${article.site}`.toLowerCase().includes(needle))
-    : articles;
+  const visible = mergeShelfSearch(articles, needle, bodyMatch?.needle === needle ? bodyMatch.ids : null);
 
   return (
     <Screen padded={false}>
@@ -152,7 +167,7 @@ export default function LibraryScreen() {
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search title or site"
+                  placeholder="Search title, site, or text"
                   placeholderTextColor={colors.faint}
                   accessibilityLabel="Search saved articles"
                   autoCapitalize="none"
