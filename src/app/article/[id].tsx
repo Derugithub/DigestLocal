@@ -7,6 +7,7 @@ import { ArticleBody } from '@/components/article-body';
 import { ListenPanel } from '@/components/listen-panel';
 import { StudyPanel } from '@/components/study-panel';
 import { AppText, Button, IconButton, LoadingState, Screen, Segmented } from '@/components/ui';
+import { deleteArticleImages } from '@/lib/article-images';
 import { deleteArticle, getArticle } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
 import type { Article } from '@/lib/types';
@@ -55,6 +56,7 @@ export default function ArticleScreen() {
   const remove = async () => {
     if (!db || !article) return;
     await deleteArticle(db, article.id);
+    deleteArticleImages(article.id);
     router.replace('/');
   };
 
@@ -116,7 +118,7 @@ export default function ArticleScreen() {
             {formatSavedDate(article.savedAt)} · {readingMinutes(article.content)} min read
           </AppText>
           <View style={[styles.rule, { backgroundColor: colors.line }]} />
-          <ArticleBody html={article.contentHtml} plain={article.content} baseUrl={article.url} />
+          <ArticleBody html={article.contentHtml} plain={article.content} baseUrl={article.url} articleId={article.id} />
           {confirmingDelete ? (
             <View style={styles.deleteRow}>
               <Button label="Confirm remove" variant="danger" onPress={() => void remove()} />
