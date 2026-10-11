@@ -19,7 +19,7 @@ There is no account, no custom backend, and no cloud sync. You can also share a 
 - On-device extractive summary and concept quiz (`heuristic-v2`), stored on the article
 - A study-engine interface so a later on-device model can replace the heuristic without changing storage
 - Light, dark, and system themes
-- Settings with the theme control, a short about note, and a network-use note
+- Settings with the theme control, a privacy and ads note, and a short about note
 
 ## Requirements
 
@@ -41,7 +41,13 @@ npx expo start
 - Android and iOS development builds use the `development` profile in `eas.json`
 - `expo-dev-client` is the first plugin in `app.json`
 
-The native modules in this app (`expo-sqlite`, `expo-speech`, `expo-font`, `expo-file-system`, `expo-image`) are part of the Expo SDK. A development build is the intended install path because the project includes `expo-dev-client`. Image files need `expo-file-system` in that build.
+The native modules in this app (`expo-sqlite`, `expo-speech`, `expo-font`, `expo-file-system`, `expo-image`, `react-native-google-mobile-ads`) need a development build. Expo Go does not include the Google Mobile Ads SDK. Image files need `expo-file-system` in that build. Ads need a new native build after this module is added:
+
+```bash
+npx eas-cli@latest build --profile development --platform android
+```
+
+Do not run that command until you mean to start a build. Development and preview profiles request Google's test ads. Never put live ad unit IDs in a development build, and never click live ads.
 
 ## Scripts
 
@@ -124,13 +130,25 @@ Listen mode speaks the saved text with `expo-speech`. Playback is split into pas
 
 Settings offers System, Light, and Dark. System follows the device color scheme. The choice is kept on device.
 
+## Privacy, ads, and Pro
+
+Saved articles stay on the device. DigestLocal has no account and no cloud library. Reading, listening, summaries, and quizzes use that saved copy.
+
+From the second session, after at least one article is saved, the app can load ads with Google AdMob and the User Messaging Platform (UMP) consent form. The first session does not initialize either SDK and does not show ads. Requests ask for non-personalized ads. Article text, saved links, and quiz results are not sent with an ad request.
+
+Pro is an on-device switch that removes ads. While it is on, the ad SDK is not initialized. Google Play Billing is not connected in this build, because a merchant payments profile is not available yet. Settings explains that Remove ads is coming later, and offers an optional 24-hour break from ads.
+
+Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The placeholders to replace before a production build are listed in `src/lib/ads/ad-units.ts`, `app.json`, `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
+
+`docs/monetization/` has the Play Data safety notes, the placement table, and an `app-ads.txt` template. The template has to be hosted at the root of the developer domain, not only inside this repository.
+
 ## EAS builds
 
 `eas.json` defines:
 
-- `development`: `developmentClient` and `distribution: internal`
-- `preview`: `distribution: internal`
-- `production`: `autoIncrement`
+- `development`: `developmentClient`, `distribution: internal`, and `ADS_MODE=test`
+- `preview`: `distribution: internal` and `ADS_MODE=test`
+- `production`: `autoIncrement` and `ADS_MODE=live`
 
 `.github/workflows/build.yml` is a manual workflow (`workflow_dispatch` only). It checks out the repo, uses Node.js 24, sets up EAS with npm and `eas-cache: false`, runs `npm ci`, and starts an Android build:
 
@@ -138,7 +156,7 @@ Settings offers System, Light, and Dark. System follows the device color scheme.
 eas build --platform android --profile <preview|development|production> --non-interactive --no-wait
 ```
 
-The workflow needs the `EXPO_TOKEN` secret. This repository does not contain an EAS project id. Run `eas init` and link the project before a non-interactive build can succeed.
+The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. A production build also needs a real AdMob Android app ID. Until that placeholder in `app.json` is replaced, or `ADMOB_ANDROID_APP_ID` is set, `app.config.ts` stops the production profile.
 
 Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode. Those colors, and the share target, are native configuration. They show up on the next EAS or development build. Search is JavaScript and does not add a native module. Article images add `expo-file-system`. `expo-image` was already a dependency and has to be in the binary to draw the files. A build from before those modules were linked cannot store or show images. The save flow still keeps the text if file storage throws.
 
@@ -146,10 +164,11 @@ Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode.
 
 ```text
 src/app/            Library, add, reader, settings, and the native share redirect
-src/components/     Shared UI, listen, study, and incoming share
-src/lib/            SQLite, fetch, extraction, and the study engine
+src/components/     Shared UI, listen, study, incoming share, and the ad banner
+src/lib/            SQLite, fetch, extraction, the study engine, ads, and the Pro entitlement
 src/theme/          Light and dark palettes
-tests/              Extraction, URL, and study tests
+docs/monetization/  Ad placement notes, Data safety notes, and the app-ads.txt template
+tests/              Extraction, URL, study, and ad-policy tests
 eas.json            EAS build profiles
 .github/workflows/  Manual Android EAS build
 ```

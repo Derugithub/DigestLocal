@@ -1,8 +1,9 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, IconButton, LoadingState, Note, Screen } from '@/components/ui';
+import { useAds } from '@/lib/ads/ads-context';
 import { deleteArticleImages, storeArticleImages } from '@/lib/article-images';
 import { findArticleIdByUrl, insertArticle } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
@@ -32,6 +33,11 @@ const PASTE_NOTICE: Record<PasteNotice, string> = {
 
 export default function AddScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ source?: string | string[] }>();
+  const source = Array.isArray(params.source) ? params.source[0] : params.source;
+  const fromShare = source === 'share';
+  const ads = useAds();
+  const { suppress, release, preloadInterstitial, showInterstitialIfEligible } = ads;
   const { colors } = useAppTheme();
   const { db, error: databaseError } = useDatabase();
   const [seed] = useState(() => currentPaste());
@@ -81,6 +87,24 @@ export default function AddScreen() {
     const timer = setTimeout(() => inputRef.current?.focus(), 300);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (phase.name === 'fetching') suppress('fetch');
+    else release('fetch');
+    if (phase.name === 'edit' || phase.name === 'preview') suppress('add-sheet');
+    else release('add-sheet');
+  }, [phase.name, release, suppress]);
+
+  useEffect(() => {
+    return () => {
+      release('fetch');
+      release('add-sheet');
+    };
+  }, [release]);
+
+  useEffect(() => {
+    preloadInterstitial({ fromShare });
+  }, [fromShare, preloadInterstitial]);
 
   useEffect(() => {
     alive.current = true;
@@ -144,7 +168,12 @@ export default function AddScreen() {
         savedAt: Date.now(),
       });
       savedId.current = draft.id;
-      router.replace(`/article/${draft.id}`);
+      release('fetch');
+      release('add-sheet');
+      const interstitial = await showInterstitialIfEligible('save', { fromShare });
+      if (!alive.current) return;
+      if (interstitial === 'shown') router.replace('/');
+      else router.replace(`/article/${draft.id}`);
     } catch (error) {
       setPhase({
         name: 'error',
@@ -186,8 +215,8 @@ export default function AddScreen() {
             kicker={phase.name === 'fetching' ? 'Network in use' : 'Network'}
             body={
               phase.name === 'fetching'
-                ? 'Downloading this page and its article images once. The text and images will stay on this device.'
-                : 'DigestLocal contacts the site only when this URL is new. That fetch downloads the page and its article images. Reading, listening, summaries, and quizzes stay on this device.'
+                ? 'Network in use: downloading this page and up to 30 images. Your saved copy stays on this device.'
+                : 'When this URL is new, DigestLocal downloads the page and up to 30 images. Your saved copy stays on this device. Reading, listening, summaries, and quizzes use that copy.'
             }
           />
 

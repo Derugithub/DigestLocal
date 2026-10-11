@@ -11,7 +11,7 @@ export function redirectSystemPath({
   initial: boolean;
 }): string {
   try {
-    if (path.includes(`dataUrl=${getShareExtensionKey()}`)) return '/add';
+    if (path.includes(`dataUrl=${getShareExtensionKey()}`)) return '/add?source=share';
     return path;
   } catch {
     return '/';

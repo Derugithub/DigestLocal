@@ -1,0 +1,72 @@
+export const AD_PLACEMENTS = ['shelf_banner', 'article_end_banner', 'save_interstitial', 'study_rewarded'] as const;
+
+export type AdPlacement = (typeof AD_PLACEMENTS)[number];
+
+export type BannerSizeName = 'LARGE_ANCHORED_ADAPTIVE_BANNER' | 'INLINE_ADAPTIVE_BANNER';
+
+/**
+ * Production unit IDs. Replace every `XXXXXXXX` segment before a live build.
+ * Live mode treats a remaining placeholder as "ads off" and does not crash.
+ */
+export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = {
+  shelf_banner: 'ca-app-pub-XXXXXXXX/1111111111',
+  article_end_banner: 'ca-app-pub-XXXXXXXX/2222222222',
+  save_interstitial: 'ca-app-pub-XXXXXXXX/3333333333',
+  study_rewarded: 'ca-app-pub-XXXXXXXX/4444444444',
+};
+
+/**
+ * Google's public test unit IDs, matching `TestIds` in react-native-google-mobile-ads 17.2.0.
+ * Runtime test mode prefers the library's `TestIds` object so platform selection stays in the SDK.
+ */
+export const GOOGLE_TEST_UNIT_IDS: Record<'android' | 'ios', Record<AdPlacement, string>> = {
+  android: {
+    shelf_banner: 'ca-app-pub-3940256099942544/9214589741',
+    article_end_banner: 'ca-app-pub-3940256099942544/9214589741',
+    save_interstitial: 'ca-app-pub-3940256099942544/1033173712',
+    study_rewarded: 'ca-app-pub-3940256099942544/5224354917',
+  },
+  ios: {
+    shelf_banner: 'ca-app-pub-3940256099942544/2435281174',
+    article_end_banner: 'ca-app-pub-3940256099942544/2435281174',
+    save_interstitial: 'ca-app-pub-3940256099942544/4411468910',
+    study_rewarded: 'ca-app-pub-3940256099942544/1712485313',
+  },
+};
+
+export type TestIdMap = Record<AdPlacement, string>;
+
+const warned = new Set<AdPlacement>();
+
+export function resetUnitIdWarnings(): void {
+  warned.clear();
+}
+
+/**
+ * Returns a unit ID, or null when live mode still has a placeholder (ads stay off).
+ * In test mode the value is `TestIds.*` from the installed library when `testIds` is passed,
+ * otherwise the matching public Google test ID for the platform.
+ */
+export function getUnitId(
+  placement: AdPlacement,
+  options: { testMode: boolean; platform?: 'android' | 'ios'; testIds?: Partial<TestIdMap> },
+): string | null {
+  if (options.testMode) {
+    const fromLibrary = options.testIds?.[placement];
+    if (fromLibrary) return fromLibrary;
+    const platform = options.platform === 'ios' ? 'ios' : 'android';
+    return GOOGLE_TEST_UNIT_IDS[platform][placement];
+  }
+
+  const id = PRODUCTION_UNIT_IDS[placement];
+  if (id.includes('XXXXXXXX')) {
+    if (!warned.has(placement)) {
+      warned.add(placement);
+      console.warn(
+        `DigestLocal ads: ${placement} still uses a placeholder unit id. That placement stays off until a real AdMob unit id is set.`,
+      );
+    }
+    return null;
+  }
+  return id;
+}

@@ -17,7 +17,9 @@ import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { IncomingShare } from '@/components/incoming-share';
+import { AdsProvider } from '@/lib/ads/ads-provider';
 import { DatabaseProvider } from '@/lib/database';
+import { EntitlementProvider } from '@/lib/entitlement';
 import { isThemePreference, ThemePreferenceProvider, THEME_KEY, useAppTheme } from '@/theme/preferences';
 import type { ThemePreference } from '@/theme/palette';
 import Storage from 'expo-sqlite/kv-store';
@@ -73,7 +75,11 @@ export default function RootLayout() {
       }}>
       <ThemePreferenceProvider preference={preference} onChange={setPreference}>
         <DatabaseProvider>
-          <ThemedNavigation />
+          <EntitlementProvider>
+            <AdsProvider>
+              <ThemedNavigation />
+            </AdsProvider>
+          </EntitlementProvider>
         </DatabaseProvider>
       </ThemePreferenceProvider>
     </ShareIntentProvider>

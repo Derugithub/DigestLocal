@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button } from '@/components/ui';
+import { useAds } from '@/lib/ads/ads-context';
+import { useEntitlement } from '@/lib/entitlement';
 import { saveStudy } from '@/lib/articles';
 import { getStudyEngine } from '@/lib/study';
 import type { Article, QuizQuestion } from '@/lib/types';
@@ -19,6 +21,9 @@ export function StudyPanel({
 }) {
   const { colors } = useAppTheme();
   const { db } = useDatabase();
+  const { isPro } = useEntitlement();
+  const ads = useAds();
+  const { suppress, release, preloadRewarded, showRewarded } = ads;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
@@ -27,7 +32,25 @@ export function StudyPanel({
   const [finished, setFinished] = useState(false);
 
   const questions = article.quiz?.questions ?? [];
-  const question = questions[cursor];
+  const unlocked = isPro || ads.quizUnlocked(article.id);
+  const freeCap = ads.config.quizFreeQuestionCap;
+  const activeQuestions = unlocked ? questions : questions.slice(0, freeCap);
+  const lockedCount = Math.max(0, questions.length - activeQuestions.length);
+  const question = activeQuestions[cursor];
+
+  useEffect(() => {
+    const inProgress = !finished && (picked !== null || cursor > 0);
+    if (inProgress) suppress('quiz');
+    else release('quiz');
+  }, [cursor, finished, picked, release, suppress]);
+
+  useEffect(() => {
+    return () => release('quiz');
+  }, [release]);
+
+  useEffect(() => {
+    if (finished && lockedCount > 0 && !unlocked) preloadRewarded();
+  }, [finished, lockedCount, preloadRewarded, unlocked]);
 
   const resetQuiz = () => {
     setCursor(0);
@@ -61,7 +84,7 @@ export function StudyPanel({
   };
 
   const next = () => {
-    if (cursor + 1 >= questions.length) {
+    if (cursor + 1 >= activeQuestions.length) {
       setFinished(true);
       return;
     }
@@ -78,7 +101,7 @@ export function StudyPanel({
         Summary and quiz
       </AppText>
       <AppText variant="ui" color={colors.soft}>
-        Built from the saved text with {article.quiz?.engine ?? getStudyEngine().id}. Nothing is sent off the device.
+        Built from the saved text with {article.quiz?.engine ?? getStudyEngine().id}. The summary and quiz are created on this device and are not uploaded.
       </AppText>
 
       {article.summary ? (
@@ -124,8 +147,24 @@ export function StudyPanel({
             Score
           </AppText>
           <AppText variant="title">
-            {correctCount} of {questions.length}
+            {correctCount} of {activeQuestions.length}
           </AppText>
+          {lockedCount > 0 && !unlocked && ads.canOfferRewarded('quiz_unlock') ? (
+            <View style={styles.reward}>
+              <Button
+                label={ads.rewardedLoaded ? `Watch an ad for ${lockedCount} more questions` : 'Ad not ready'}
+                onPress={() => {
+                  void showRewarded('quiz_unlock', { articleId: article.id }).then((result) => {
+                    if (result === 'earned') resetQuiz();
+                  });
+                }}
+                disabled={!ads.rewardedLoaded}
+              />
+              <AppText variant="meta" color={colors.faint}>
+                Optional
+              </AppText>
+            </View>
+          ) : null}
           <Button label="Try the quiz again" variant="secondary" onPress={resetQuiz} />
         </View>
       ) : null}
@@ -133,7 +172,7 @@ export function StudyPanel({
       {question && !finished ? (
         <View style={styles.quiz}>
           <AppText variant="label" color={colors.faint}>
-            Question {cursor + 1} of {questions.length}
+            Question {cursor + 1} of {activeQuestions.length}
           </AppText>
           <AppText variant="bodySemi" style={styles.prompt}>
             {question.prompt}
@@ -153,7 +192,7 @@ export function StudyPanel({
               <AppText variant="ui" color={colors.soft}>
                 {question.explanation}
               </AppText>
-              <Button label={cursor + 1 === questions.length ? 'See score' : 'Next question'} onPress={next} />
+              <Button label={cursor + 1 === activeQuestions.length ? 'See score' : 'Next question'} onPress={next} />
             </>
           ) : null}
         </View>
@@ -209,6 +248,7 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 22, padding: 18, gap: 12 },
   summary: { fontFamily: Fonts.body, fontSize: 17, lineHeight: 26 },
   quiz: { gap: 12 },
+  reward: { gap: 8 },
   prompt: { fontSize: 22, lineHeight: 30 },
   choice: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14 },
 });

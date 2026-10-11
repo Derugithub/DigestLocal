@@ -110,6 +110,11 @@ export function likeContainsPattern(query: string): string {
   return `%${escaped}%`;
 }
 
+export async function countArticles(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM articles');
+  return row?.n ?? 0;
+}
+
 export async function listArticles(db: SQLiteDatabase): Promise<ArticleListItem[]> {
   const rows = await db.getAllAsync<ListRow>(`${ARTICLE_LIST_SQL} ORDER BY saved_at DESC`);
   return mapList(rows);
