@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdBanner } from '@/components/ad-banner';
 import { ArticleBody } from '@/components/article-body';
 import { ListenPanel } from '@/components/listen-panel';
 import { StudyPanel } from '@/components/study-panel';
@@ -34,6 +35,20 @@ export default function ArticleScreen() {
   const [mode, setMode] = useState<Mode>('read');
   const [progress, setProgress] = useState(0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [showEndBanner, setShowEndBanner] = useState(false);
+  const viewportHeight = useRef(0);
+  const contentHeight = useRef(0);
+  const offsetY = useRef(0);
+
+  const considerEndBanner = (offsetY: number) => {
+    const viewHeight = viewportHeight.current;
+    const bodyHeight = contentHeight.current;
+    if (viewHeight <= 0 || bodyHeight <= 0) return;
+    const longEnough = bodyHeight >= viewHeight * 2;
+    const distanceToEnd = bodyHeight - (offsetY + viewHeight);
+    setShowEndBanner(longEnough && distanceToEnd <= viewHeight);
+  };
 
   useEffect(() => {
     if (!db || !id) return;
@@ -92,6 +107,7 @@ export default function ArticleScreen() {
         ) : null}
       </View>
       <View style={styles.toolbar}>
+        {/* TODO(ads): Back-nav interstitial is not implemented. backNavInterstitialEnabled stays false. */}
         <IconButton icon="chevron-back" label="Back to shelf" onPress={() => router.back()} />
         <AppText variant="label" color={colors.faint} numberOfLines={1} style={styles.site}>
           {article.site}
@@ -103,10 +119,22 @@ export default function ArticleScreen() {
           style={styles.panel}
           contentContainerStyle={[styles.reader, { paddingBottom: insets.bottom + 120 }]}
           scrollEventThrottle={16}
+          onLayout={(event) => {
+            viewportHeight.current = event.nativeEvent.layout.height;
+            considerEndBanner(0);
+          }}
+          onContentSizeChange={(_width, height) => {
+            contentHeight.current = height;
+            considerEndBanner(offsetY.current);
+          }}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            viewportHeight.current = layoutMeasurement.height;
+            contentHeight.current = contentSize.height;
+            offsetY.current = contentOffset.y;
             const max = contentSize.height - layoutMeasurement.height;
             setProgress(max > 0 ? Math.min(1, Math.max(0, contentOffset.y / max)) : 0);
+            considerEndBanner(contentOffset.y);
           }}>
           <AppText variant="label" color={colors.accent}>
             On this device
@@ -118,7 +146,18 @@ export default function ArticleScreen() {
             {formatSavedDate(article.savedAt)} · {readingMinutes(article.content)} min read
           </AppText>
           <View style={[styles.rule, { backgroundColor: colors.line }]} />
-          <ArticleBody html={article.contentHtml} plain={article.content} baseUrl={article.url} articleId={article.id} />
+          <View onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}>
+            <ArticleBody html={article.contentHtml} plain={article.content} baseUrl={article.url} articleId={article.id} />
+          </View>
+          {showEndBanner ? (
+            <View style={styles.endBanner}>
+              <AdBanner
+                placement="article_end_banner"
+                size="INLINE_ADAPTIVE_BANNER"
+                width={contentWidth > 0 ? contentWidth : undefined}
+              />
+            </View>
+          ) : null}
           {confirmingDelete ? (
             <View style={styles.deleteRow}>
               <Button label="Confirm remove" variant="danger" onPress={() => void remove()} />
@@ -169,6 +208,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, lineHeight: 40 },
   rule: { height: 1, marginVertical: 4 },
   deleteRow: { gap: 10, marginTop: 8 },
+  endBanner: { marginTop: 8, marginBottom: 24 },
   panel: { flex: 1 },
   modeBar: {
     position: 'absolute',

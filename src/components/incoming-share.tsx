@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
 import { useEffect, useRef } from 'react';
 
+import { markShareHandoff } from '@/lib/ads/share-handoff';
 import { stagePaste } from '@/lib/paste-draft';
 import { draftFromShare } from '@/lib/share-draft';
 
@@ -20,8 +21,9 @@ export function IncomingShare() {
     idle.current = false;
     const draft = draftFromShare({ webUrl: shareIntent.webUrl, text: shareIntent.text });
     stagePaste(draft.url, draft.notice);
+    markShareHandoff();
     resetShareIntent();
-    router.navigate('/add');
+    router.navigate('/add?source=share');
   }, [hasShareIntent, resetShareIntent, router, shareIntent.text, shareIntent.webUrl]);
 
   return null;

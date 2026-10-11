@@ -1,8 +1,10 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { AppState, FlatList, Keyboard, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdBanner } from '@/components/ad-banner';
 import { AppText, Button, IconButton, LoadingState, Screen } from '@/components/ui';
 import { listArticles, mergeShelfSearch, searchArticleIdsByBody } from '@/lib/articles';
 import { useDatabase } from '@/lib/database';
@@ -29,6 +31,8 @@ function clipboardNativeModule(): unknown {
 export default function LibraryScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const { db, error } = useDatabase();
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -38,9 +42,20 @@ export default function LibraryScreen() {
   const pasteSession = useRef(0);
 
   useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
       // The first clipboard read can background the activity. Come back to the add screen.
-      if (next === 'active' && pasting.current) router.navigate('/add');
+      if (next === 'active' && pasting.current) router.navigate('/add?source=paste');
     });
     return () => subscription.remove();
   }, [router]);
@@ -55,7 +70,7 @@ export default function LibraryScreen() {
     stagePaste('', null);
     const showAdd = () => {
       if (pasteSession.current !== session) return;
-      router.navigate('/add');
+      router.navigate('/add?source=paste');
     };
     showAdd();
     requestAnimationFrame(() => {
@@ -134,14 +149,16 @@ export default function LibraryScreen() {
   if (!db || !ready) return <LoadingState label="Opening the shelf" />;
 
   const visible = mergeShelfSearch(articles, needle, bodyMatch?.needle === needle ? bodyMatch.ids : null);
+  const showShelfBanner = articles.length > 0 && (needle.length === 0 || visible.length > 0) && !keyboardOpen;
 
   return (
     <Screen padded={false}>
+      <View style={styles.flex}>
       <FlatList
         data={visible}
         keyExtractor={(item) => item.id}
         style={styles.flex}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, showShelfBanner && styles.listAboveBanner]}
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.wordmarkRow}>
@@ -194,7 +211,7 @@ export default function LibraryScreen() {
               </AppText>
               <AppText variant="title">The shelf is empty.</AppText>
               <AppText variant="body" color={colors.soft} style={styles.emptyCopy}>
-                Paste a public page. DigestLocal downloads it once, keeps it here, and can read it aloud or quiz you without a network.
+                Paste a public page. DigestLocal downloads it once, keeps it here, and can read it aloud or quiz you from that saved copy.
               </AppText>
               <Button label="Paste a URL" icon="add" onPress={() => void pasteLink()} />
             </View>
@@ -223,6 +240,12 @@ export default function LibraryScreen() {
           </Pressable>
         )}
       />
+      {showShelfBanner ? (
+        <View style={[styles.bannerSlot, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          <AdBanner placement="shelf_banner" size="LARGE_ANCHORED_ADAPTIVE_BANNER" />
+        </View>
+      ) : null}
+      </View>
     </Screen>
   );
 }
@@ -234,6 +257,8 @@ function readingMinutesFromCount(wordCount: number): number {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   list: { paddingHorizontal: 22, paddingBottom: 48 },
+  listAboveBanner: { paddingBottom: 16 },
+  bannerSlot: { paddingTop: 16 },
   header: { paddingTop: 18, gap: 14, marginBottom: 8 },
   wordmarkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   wordmark: { marginTop: 4 },

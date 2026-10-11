@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Segmented } from '@/components/ui';
+import { useAds } from '@/lib/ads/ads-context';
 import { chunkForSpeech } from '@/lib/text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
@@ -16,6 +17,7 @@ const RATES = [
 
 export function ListenPanel({ content }: { content: string }) {
   const { colors } = useAppTheme();
+  const { suppress, release } = useAds();
   const chunks = chunkForSpeech(content);
   const [index, setIndex] = useState(0);
   const [status, setStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
@@ -26,6 +28,15 @@ export function ListenPanel({ content }: { content: string }) {
   const rateRef = useRef<(typeof RATES)[number]['value']>('1');
   const statusRef = useRef<'idle' | 'playing' | 'paused'>('idle');
   const held = useRef(false);
+
+  useEffect(() => {
+    if (status === 'playing' || status === 'paused') suppress('listen');
+    else release('listen');
+  }, [release, status, suppress]);
+
+  useEffect(() => {
+    return () => release('listen');
+  }, [release]);
 
   useEffect(() => {
     return () => {
