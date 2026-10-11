@@ -138,7 +138,7 @@ From the second session, after at least one article is saved, the app can load a
 
 Pro is an on-device switch that removes ads. While it is on, the ad SDK is not initialized. Google Play Billing is not connected in this build, because a merchant payments profile is not available yet. Settings explains that Remove ads is coming later, and offers an optional 24-hour break from ads.
 
-Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The placeholders to replace before a production build are listed in `src/lib/ads/ad-units.ts`, `app.json`, `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
+Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The placeholders to replace before a production build are listed in `src/lib/ads/ad-units.ts`, `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`), `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
 
 `docs/monetization/` has the Play Data safety notes, the placement table, and an `app-ads.txt` template. The template has to be hosted at the root of the developer domain, not only inside this repository.
 
@@ -157,6 +157,8 @@ eas build --platform android --profile <preview|development|production> --non-in
 ```
 
 The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. A production build also needs a real AdMob Android app ID. Until that placeholder in `app.json` is replaced, or `ADMOB_ANDROID_APP_ID` is set, `app.config.ts` stops the production profile.
+
+`react-native-google-mobile-ads` 17.2.0 reads a root-level `react-native-google-mobile-ads` object in `app.json` while Android configures. That object sits next to `expo`. Its `android_app_id` is what the library's Gradle script turns into `googleMobileAdsJson`. The Expo config plugin still writes the manifest app id, and non-production builds substitute Google's sample id there.
 
 Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode. Those colors, and the share target, are native configuration. They show up on the next EAS or development build. Search is JavaScript and does not add a native module. Article images add `expo-file-system`. `expo-image` was already a dependency and has to be in the binary to draw the files. A build from before those modules were linked cannot store or show images. The save flow still keeps the text if file storage throws.
 
