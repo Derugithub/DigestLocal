@@ -8,6 +8,11 @@ export type InterstitialTrigger = 'save' | 'back';
 export type RewardedKind = 'ad_free' | 'quiz_unlock' | 'extra_speeds';
 export type ShowInterstitialResult = 'shown' | 'skipped';
 export type ShowRewardedResult = 'earned' | 'closed' | 'unavailable' | 'error';
+export type RewardedShowOptions = {
+  articleId?: string;
+  quizQuestionCount?: number;
+  quizFresh?: boolean;
+};
 export type FullscreenLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 export type SdkInitStatus = 'idle' | 'running' | 'ready' | 'retry-on-foreground';
 
@@ -22,14 +27,16 @@ export type AdsContextValue = {
   rewardedLoaded: boolean;
   config: AdConfig;
   suppressed: boolean;
-  quizUnlocked: (articleId: string) => boolean;
+  quizExtra: (articleId: string) => number;
   suppress: (reason: SuppressionReason) => void;
   release: (reason: SuppressionReason) => void;
   showInterstitialIfEligible: (
     trigger: InterstitialTrigger,
     options?: { fromShare?: boolean },
   ) => Promise<ShowInterstitialResult>;
-  showRewarded: (kind: RewardedKind, options?: { articleId?: string }) => Promise<ShowRewardedResult>;
+  showRewarded: (kind: RewardedKind, options?: RewardedShowOptions) => Promise<ShowRewardedResult>;
+  recordQuizOfferShown: () => Promise<void>;
+  resetQuizExtra: (articleId: string) => Promise<void>;
   preloadInterstitial: (options?: { fromShare?: boolean }) => void;
   preloadRewarded: () => void;
   unitId: (placement: AdPlacement) => string | null;
@@ -44,6 +51,10 @@ export type AdsContextValue = {
   saveInterstitialCounter: number;
   lastFullscreenAt: number | null;
   fullscreenTodayCount: number;
+  adFreePassesToday: number;
+  quizRewardsToday: number;
+  quizOffersShown: number;
+  quizOffersAccepted: number;
   interstitialLoadState: FullscreenLoadState;
   rewardedLoadState: FullscreenLoadState;
   canRequestAds: boolean;
@@ -65,11 +76,13 @@ export const idleAdsContext: AdsContextValue = {
   rewardedLoaded: false,
   config: adConfigFromDefaults(),
   suppressed: false,
-  quizUnlocked: () => false,
+  quizExtra: () => 0,
   suppress: () => undefined,
   release: () => undefined,
   showInterstitialIfEligible: async () => 'skipped',
   showRewarded: async () => 'unavailable',
+  recordQuizOfferShown: async () => undefined,
+  resetQuizExtra: async () => undefined,
   preloadInterstitial: () => undefined,
   preloadRewarded: () => undefined,
   unitId: () => null,
@@ -83,6 +96,10 @@ export const idleAdsContext: AdsContextValue = {
   saveInterstitialCounter: 0,
   lastFullscreenAt: null,
   fullscreenTodayCount: 0,
+  adFreePassesToday: 0,
+  quizRewardsToday: 0,
+  quizOffersShown: 0,
+  quizOffersAccepted: 0,
   interstitialLoadState: 'idle',
   rewardedLoadState: 'idle',
   canRequestAds: false,

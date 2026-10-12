@@ -130,15 +130,19 @@ Listen mode speaks the saved text with `expo-speech`. Playback is split into pas
 
 Settings offers System, Light, and Dark. System follows the device color scheme. The choice is kept on device.
 
-## Privacy, ads, and Pro
+## Privacy and ads
 
 Saved articles stay on the device. DigestLocal has no account and no cloud library. Reading, listening, summaries, and quizzes use that saved copy.
 
 From the second session, after at least one article is saved, the app can load ads with Google AdMob and the User Messaging Platform (UMP) consent form. The first session does not initialize either SDK and does not show ads. Requests ask for non-personalized ads. Article text, saved links, and quiz results are not sent with an ad request.
 
-Pro is an on-device switch that removes ads. While it is on, the ad SDK is not initialized. Google Play Billing is not connected in this build, because a merchant payments profile is not available yet. Settings explains that Remove ads is coming later, and offers an optional 24-hour break from ads.
+Settings links to the privacy policy at https://derugithub.github.io/Privacy-policy/digestlocal/ and to support at movadmob@gmail.com.
 
-Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The placeholders to replace before a production build are listed in `src/lib/ads/ad-units.ts`, `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`), `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
+A rewarded ad can turn off banners and full-screen ads for 1 hour. Passes stack up to 3 hours, with at most 6 passes on a local day. After a pass expires, the next interstitial waits 5 minutes. Banners can return as soon as the pass ends. The quiz shows the score first. An optional rewarded ad can then add the next 3 unanswered questions, up to 8 in the set. That offer is limited to 8 rewards a day. The first 3 questions stay free.
+
+A build-time flag, `EXPO_PUBLIC_PRO_ENABLED` or `extra.proEnabled`, defaults to off. While it is off, Settings does not offer a purchase and the stored entitlement is ignored. The entitlement module remains in the project for a later build that turns the flag on. Google Play Billing is not connected.
+
+Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The privacy policy URL and the support email are set. The placeholders to replace before a production build are the AdMob IDs in `src/lib/ads/ad-units.ts`, `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`), the developer domain in `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
 
 `docs/monetization/` has the Play Data safety notes, the placement table, and an `app-ads.txt` template. The template has to be hosted at the root of the developer domain, not only inside this repository.
 
@@ -181,7 +185,7 @@ It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downl
 ```text
 src/app/            Library, add, reader, settings, and the native share redirect
 src/components/     Shared UI, listen, study, incoming share, and the ad banner
-src/lib/            SQLite, fetch, extraction, the study engine, ads, and the Pro entitlement
+src/lib/            SQLite, fetch, extraction, the study engine, ads, and the entitlement flag
 src/theme/          Light and dark palettes
 docs/monetization/  Ad placement notes, Data safety notes, and the app-ads.txt template
 tests/              Extraction, URL, study, and ad-policy tests

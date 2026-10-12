@@ -2,7 +2,7 @@
 
 Source: [Play data disclosure for the Google Mobile Ads SDK](https://developers.google.com/admob/android/privacy/play-data-disclosure).
 
-DigestLocal does not run its own analytics or crash SDK. The notes below are for the Google Mobile Ads SDK and the User Messaging Platform (UMP), which start on session 2 for people who are not Pro.
+DigestLocal does not run its own analytics or crash SDK. The notes below are for the Google Mobile Ads SDK and the User Messaging Platform (UMP), which start on session 2. Support mail for the store listing and the in-app contact link is movadmob@gmail.com.
 
 ## Collected and shared
 
@@ -33,6 +33,6 @@ The page fetch goes to the site the user chose. DigestLocal's developer does not
 | News app | No |
 | Account required | No |
 
-Pro removes ads and does not initialize the ad SDK, so a Pro-only session does not contact an ad network. Billing is not connected in this build, so do not declare purchase history until a Play Billing provider ships.
+This build does not include purchase billing, so do not declare purchase history. The ad SDK is not initialized on session 1. A build flag can suppress ads when an entitlement is both enabled and owned; that flag defaults to off, and this listing should not describe a purchase.
 
 Confirm the disclosure against the current Google guide before submitting the Data safety form. Do not submit that form from this repository change.

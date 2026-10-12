@@ -3,10 +3,12 @@ import test from 'node:test';
 
 import {
   buildQuiz,
+  freshQuizIfDifferent,
   getStudyEngine,
   MAX_QUIZ_QUESTIONS,
   MIN_QUIZ_QUESTIONS,
   quizSizeForPoints,
+  sameQuizSet,
   STUDY_ENGINE_ID,
   summarize,
 } from '../src/lib/study.ts';
@@ -112,4 +114,25 @@ test('a meaning question asks what an idea shows, not which word was used', () =
 
 test('the active engine is the local heuristic', () => {
   assert.equal(getStudyEngine().id, STUDY_ENGINE_ID);
+});
+
+test('a fresh quiz exists only when it is not the previous set', () => {
+  const first = buildQuiz(long);
+  assert.equal(sameQuizSet(first.questions, buildQuiz(long).questions), true);
+  let previous = first.questions;
+  let produced = 0;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const next = freshQuizIfDifferent(long, previous);
+    if (!next) break;
+    assert.equal(sameQuizSet(previous, next.questions), false);
+    previous = [...previous, ...next.questions];
+    produced += 1;
+  }
+  assert.ok(produced >= 1);
+  assert.equal(freshQuizIfDifferent(long, previous), null);
+
+  const harbor = buildQuiz(input);
+  const harborAgain = freshQuizIfDifferent(input, harbor.questions);
+  if (harborAgain) assert.equal(sameQuizSet(harbor.questions, harborAgain.questions), false);
+  assert.equal(freshQuizIfDifferent(input, []), null);
 });

@@ -11,11 +11,18 @@ export type AdState = {
   fullscreenToday: DayCount;
   rewardedToday: DayCount;
   quizUnlocksToday: DayCount;
+  /** Ad-free passes granted on the local day. Separate from the shared rewarded counter. */
+  adFreePassesToday: DayCount;
   lastRewardedClosedAt: number | null;
   adFreeUntil: number | null;
   /** Faster TTS speeds (1.5× and 2×) stay unlocked until this time. */
   extraSpeedsUntil: number | null;
-  quizUnlocks: string[];
+  /** Extra questions granted past the free cap, keyed by article id. */
+  quizExtra: Record<string, number>;
+  /** Quiz reward offers rendered on a score screen. */
+  quizOffersShown: number;
+  /** Quiz rewards granted from the earned-reward callback. */
+  quizOffersAccepted: number;
 };
 
 const STORAGE_KEY = 'ads.state';
@@ -33,10 +40,13 @@ export function emptyAdState(now = 0): AdState {
     fullscreenToday: { date: '', count: 0 },
     rewardedToday: { date: '', count: 0 },
     quizUnlocksToday: { date: '', count: 0 },
+    adFreePassesToday: { date: '', count: 0 },
     lastRewardedClosedAt: null,
     adFreeUntil: null,
     extraSpeedsUntil: null,
-    quizUnlocks: [],
+    quizExtra: {},
+    quizOffersShown: 0,
+    quizOffersAccepted: 0,
   };
 }
 
@@ -44,6 +54,26 @@ function isDayCount(value: unknown): value is DayCount {
   if (!value || typeof value !== 'object') return false;
   const day = value as DayCount;
   return typeof day.date === 'string' && typeof day.count === 'number' && Number.isFinite(day.count);
+}
+
+function finiteCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** Keeps a previous full unlock by granting enough extra questions to reach the 8-question maximum. */
+function quizExtraFrom(raw: Partial<AdState> & { quizUnlocks?: unknown }): Record<string, number> {
+  const extra: Record<string, number> = {};
+  if (raw.quizExtra && typeof raw.quizExtra === 'object' && !Array.isArray(raw.quizExtra)) {
+    for (const [id, count] of Object.entries(raw.quizExtra)) {
+      if (typeof count === 'number' && Number.isFinite(count) && count > 0) extra[id] = Math.floor(count);
+    }
+  }
+  if (Array.isArray(raw.quizUnlocks)) {
+    for (const id of raw.quizUnlocks) {
+      if (typeof id === 'string' && extra[id] == null) extra[id] = 8;
+    }
+  }
+  return extra;
 }
 
 export function sanitizeAdState(value: unknown, now = Date.now()): AdState {
@@ -64,10 +94,13 @@ export function sanitizeAdState(value: unknown, now = Date.now()): AdState {
     fullscreenToday: isDayCount(raw.fullscreenToday) ? raw.fullscreenToday : base.fullscreenToday,
     rewardedToday: isDayCount(raw.rewardedToday) ? raw.rewardedToday : base.rewardedToday,
     quizUnlocksToday: isDayCount(raw.quizUnlocksToday) ? raw.quizUnlocksToday : base.quizUnlocksToday,
+    adFreePassesToday: isDayCount(raw.adFreePassesToday) ? raw.adFreePassesToday : base.adFreePassesToday,
     lastRewardedClosedAt: typeof raw.lastRewardedClosedAt === 'number' ? raw.lastRewardedClosedAt : null,
     adFreeUntil: typeof raw.adFreeUntil === 'number' ? raw.adFreeUntil : null,
     extraSpeedsUntil: typeof raw.extraSpeedsUntil === 'number' ? raw.extraSpeedsUntil : null,
-    quizUnlocks: Array.isArray(raw.quizUnlocks) ? raw.quizUnlocks.filter((id) => typeof id === 'string') : [],
+    quizExtra: quizExtraFrom(raw),
+    quizOffersShown: finiteCount(raw.quizOffersShown),
+    quizOffersAccepted: finiteCount(raw.quizOffersAccepted),
   };
 }
 

@@ -4,21 +4,26 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { AD_DEFAULTS, adRequestOptions, clampRemoteOverride, type AdConfig } from '../src/lib/ads/ad-config.ts';
+import { AD_DEFAULTS, adRequestOptions, clampRemoteOverride, PRIVACY_POLICY_URL, SUPPORT_EMAIL, type AdConfig } from '../src/lib/ads/ad-config.ts';
 import {
   canInitAds,
   canOfferRewarded,
   canShowBanner,
   canShowInterstitial,
+  formatAdFreeRemaining,
   fullscreenReloadDelayMs,
+  grantRewardedReward,
   interstitialBlockReason,
   localDateKey,
+  nextAdFreeUntil,
   nextSaveInterstitialCounter,
   nextSessionState,
   rewardedBlockReason,
   type PolicyInput,
 } from '../src/lib/ads/ad-policy.ts';
-import { emptyAdState, type AdState } from '../src/lib/ads/ad-state.ts';
+import { emptyAdState, sanitizeAdState, type AdState } from '../src/lib/ads/ad-state.ts';
+import { isProEnabledFrom } from '../src/lib/pro-flag-value.ts';
+import { planQuizOffer } from '../src/lib/quiz-reward.ts';
 import { getUnitId, GOOGLE_TEST_UNIT_IDS, resetUnitIdWarnings } from '../src/lib/ads/ad-units.ts';
 import {
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
@@ -104,37 +109,54 @@ test('interstitial fires on the 3rd and 6th save only, and respects every other 
   );
   assert.notEqual(localDateKey(NOW), '1999-01-01');
 
-  assert.equal(canShowInterstitial('save', input({}, { lastRewardedClosedAt: NOW - 59_000 })), false);
-  assert.equal(canShowInterstitial('save', input({}, { lastRewardedClosedAt: NOW - 61_000 })), true);
+  assert.equal(canShowInterstitial('save', input({}, { lastRewardedClosedAt: NOW - 119_000 })), false);
+  assert.equal(canShowInterstitial('save', input({}, { lastRewardedClosedAt: NOW - 121_000 })), true);
+  assert.equal(canShowInterstitial('save', input({}, { adFreeUntil: NOW - 4 * 60 * 1000 })), false);
+  assert.equal(canShowInterstitial('save', input({}, { adFreeUntil: NOW - 6 * 60 * 1000 })), true);
+  assert.equal(canShowBanner('shelf_banner', input({}, { adFreeUntil: NOW - 4 * 60 * 1000 })), true);
+  assert.equal(canShowBanner('shelf_banner', input({}, { adFreeUntil: NOW + 60_000 })), false);
   assert.equal(canShowInterstitial('save', input({ fromShare: true })), false);
   assert.equal(canShowInterstitial('save', input({ suppressed: true })), false);
   assert.equal(canShowInterstitial('save', input({}, { adFreeUntil: NOW + 60_000 })), false);
   assert.equal(canShowInterstitial('back', input()), false);
 });
 
-test('rewarded caps: one ad-free pass per 24 hours, three quiz unlocks a day, six rewarded shows a day', () => {
+test('rewarded caps: six 1-hour passes a day, eight quiz rewards a day, and a shared ceiling of 15', () => {
   const fresh = input({ state: state({ sessionCount: 2, savedCount: 1, saveInterstitialCounter: 0 }) });
   assert.equal(canOfferRewarded('ad_free', fresh), true);
   assert.equal(canOfferRewarded('quiz_unlock', fresh), true);
 
   const duringPass = input({}, { adFreeUntil: NOW + 60 * 60 * 1000 });
-  assert.equal(canOfferRewarded('ad_free', duringPass), false);
+  assert.equal(canOfferRewarded('ad_free', duringPass), true);
+  assert.equal(canOfferRewarded('quiz_unlock', duringPass), true);
+
+  const atStackCap = input({}, { adFreeUntil: NOW + 3 * 60 * 60 * 1000 });
+  assert.equal(canOfferRewarded('ad_free', atStackCap), false);
 
   const afterPass = input({}, { adFreeUntil: NOW - 1000 });
   assert.equal(canOfferRewarded('ad_free', afterPass), true);
 
-  const quizCap = input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 3 } });
+  const quizCap = input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 8 } });
   assert.equal(canOfferRewarded('quiz_unlock', quizCap), false);
   assert.equal(canOfferRewarded('ad_free', quizCap), true);
 
-  const quizYesterday = input({}, { quizUnlocksToday: { date: '1999-01-01', count: 3 } });
+  const quizUnderCap = input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 7 } });
+  assert.equal(canOfferRewarded('quiz_unlock', quizUnderCap), true);
+
+  const quizYesterday = input({}, { quizUnlocksToday: { date: '1999-01-01', count: 8 } });
   assert.equal(canOfferRewarded('quiz_unlock', quizYesterday), true);
 
-  const daily = input({}, { rewardedToday: { date: localDateKey(NOW), count: 6 } });
+  const passesToday = input({}, { adFreePassesToday: { date: localDateKey(NOW), count: 6 } });
+  assert.equal(canOfferRewarded('ad_free', passesToday), false);
+  assert.equal(canOfferRewarded('quiz_unlock', passesToday), true);
+  const passesYesterday = input({}, { adFreePassesToday: { date: '1999-01-01', count: 6 } });
+  assert.equal(canOfferRewarded('ad_free', passesYesterday), true);
+
+  const daily = input({}, { rewardedToday: { date: localDateKey(NOW), count: 15 } });
   assert.equal(canOfferRewarded('ad_free', daily), false);
   assert.equal(canOfferRewarded('quiz_unlock', daily), false);
 
-  const underDaily = input({}, { rewardedToday: { date: localDateKey(NOW), count: 5 } });
+  const underDaily = input({}, { rewardedToday: { date: localDateKey(NOW), count: 14 } });
   assert.equal(canOfferRewarded('ad_free', underDaily), true);
   assert.equal(canOfferRewarded('quiz_unlock', underDaily), true);
   assert.equal(canOfferRewarded('extra_speeds', underDaily), true);
@@ -354,10 +376,18 @@ test('interstitial and rewarded block reasons name the cap that failed', () => {
   assert.equal(interstitialBlockReason('save', input({ fromShare: true })), 'opened from a share');
 
   assert.equal(
-    rewardedBlockReason('quiz_unlock', input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 3 } })),
-    'quiz unlock daily cap 3',
+    rewardedBlockReason('quiz_unlock', input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 8 } })),
+    'quiz unlock daily cap 8',
   );
-  assert.equal(rewardedBlockReason('ad_free', input({}, { adFreeUntil: NOW + 60_000 })), 'ad-free pass already used in the last 24h');
+  assert.equal(rewardedBlockReason('ad_free', input({}, { adFreeUntil: NOW + 60_000 })), null);
+  assert.equal(
+    rewardedBlockReason('ad_free', input({}, { adFreePassesToday: { date: localDateKey(NOW), count: 6 } })),
+    'ad-free pass daily cap 6',
+  );
+  assert.equal(
+    interstitialBlockReason('save', input({}, { adFreeUntil: NOW - 4 * 60 * 1000 })),
+    'interstitial waits 300s after the ad-free pass',
+  );
   assert.equal(rewardedBlockReason('quiz_unlock', input()), null);
   assert.equal(
     rewardedBlockReason('extra_speeds', input({}, { extraSpeedsUntil: NOW + 60_000 })),
@@ -370,6 +400,125 @@ test('the save interstitial counter ignores saves before session 3', () => {
   assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 1, saveInterstitialCounter: 4 }), config), 4);
   assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 2, saveInterstitialCounter: 0 }), config), 0);
   assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 3, saveInterstitialCounter: 2 }), config), 3);
+});
+
+test('ad-free passes stack to 3 hours and quiz rewards add 3 questions', () => {
+  const config = { ...AD_DEFAULTS };
+  const hour = 60 * 60 * 1000;
+  assert.equal(nextAdFreeUntil(null, NOW, config), NOW + hour);
+  assert.equal(nextAdFreeUntil(NOW + 90 * 60 * 1000, NOW, config), NOW + 90 * 60 * 1000 + hour);
+  assert.equal(nextAdFreeUntil(NOW + 2.5 * hour, NOW, config), NOW + 3 * hour);
+  assert.equal(formatAdFreeRemaining(NOW + hour, NOW), '1 hour left');
+  assert.equal(formatAdFreeRemaining(NOW + 90 * 60 * 1000, NOW), '1 hour 30 minutes left');
+  assert.equal(formatAdFreeRemaining(NOW - 1000, NOW), null);
+
+  let rewarded = emptyAdState(NOW);
+  rewarded = grantRewardedReward(rewarded, 'ad_free', NOW, config);
+  rewarded = grantRewardedReward(rewarded, 'ad_free', NOW, config);
+  rewarded = grantRewardedReward(rewarded, 'ad_free', NOW, config);
+  assert.equal(rewarded.adFreeUntil, NOW + 3 * hour);
+  assert.equal(rewarded.adFreePassesToday.count, 3);
+
+  const capped = grantRewardedReward({ ...rewarded, adFreeUntil: NOW + 3 * hour }, 'ad_free', NOW, config);
+  assert.equal(capped.adFreeUntil, NOW + 3 * hour);
+
+  const quiz = grantRewardedReward(emptyAdState(NOW), 'quiz_unlock', NOW, config, {
+    articleId: 'article-1',
+    quizQuestionCount: 8,
+  });
+  assert.equal(quiz.quizExtra['article-1'], 3);
+  assert.equal(quiz.quizOffersAccepted, 1);
+  const more = grantRewardedReward(quiz, 'quiz_unlock', NOW, config, {
+    articleId: 'article-1',
+    quizQuestionCount: 8,
+  });
+  assert.equal(more.quizExtra['article-1'], 5);
+  const fresh = grantRewardedReward(more, 'quiz_unlock', NOW, config, {
+    articleId: 'article-1',
+    quizQuestionCount: 8,
+    quizFresh: true,
+  });
+  assert.equal(fresh.quizExtra['article-1'], 0);
+  assert.equal(fresh.quizUnlocksToday.count, 3);
+  assert.equal(fresh.quizOffersAccepted, 3);
+
+  assert.deepEqual(
+    planQuizOffer({
+      questionCount: 8,
+      capApplies: true,
+      freeCap: 3,
+      extra: 0,
+      rewardQuestions: 3,
+      freshAvailable: false,
+    }),
+    { kind: 'extend', add: 3 },
+  );
+  assert.deepEqual(
+    planQuizOffer({
+      questionCount: 4,
+      capApplies: true,
+      freeCap: 3,
+      extra: 0,
+      rewardQuestions: 3,
+      freshAvailable: false,
+    }),
+    { kind: 'extend', add: 1 },
+  );
+  assert.deepEqual(
+    planQuizOffer({
+      questionCount: 8,
+      capApplies: true,
+      freeCap: 3,
+      extra: 5,
+      rewardQuestions: 3,
+      freshAvailable: false,
+    }),
+    { kind: 'hide' },
+  );
+  assert.deepEqual(
+    planQuizOffer({
+      questionCount: 8,
+      capApplies: true,
+      freeCap: 3,
+      extra: 5,
+      rewardQuestions: 3,
+      freshAvailable: true,
+    }),
+    { kind: 'fresh' },
+  );
+
+  const migrated = sanitizeAdState({ quizUnlocks: ['article-1'], quizOffersShown: 2, quizOffersAccepted: 1 });
+  assert.equal(migrated.quizExtra['article-1'], 8);
+  assert.equal(migrated.quizOffersShown, 2);
+  assert.equal(migrated.quizOffersAccepted, 1);
+});
+
+test('the entitlement flag and public contact details default off the old placeholders', () => {
+  assert.equal(isProEnabledFrom({}, {}), false);
+  assert.equal(isProEnabledFrom({ EXPO_PUBLIC_PRO_ENABLED: 'true' }, { proEnabled: false }), true);
+  assert.equal(isProEnabledFrom({}, { proEnabled: true }), true);
+  assert.equal(isProEnabledFrom({ EXPO_PUBLIC_PRO_ENABLED: '0' }, { proEnabled: true }), false);
+  assert.equal(PRIVACY_POLICY_URL, 'https://derugithub.github.io/Privacy-policy/digestlocal/');
+  assert.equal(SUPPORT_EMAIL, 'movadmob@gmail.com');
+});
+
+test('remote config cannot loosen the new pass and quiz caps', () => {
+  const clamped = clampRemoteOverride({
+    adFreePassHours: 24,
+    adFreePassPerDay: 10,
+    adFreePassMaxHours: 10,
+    afterAdFreeCooldownSec: 60,
+    quizUnlockPerDay: 20,
+    afterRewardedCooldownSec: 30,
+    rewardedDailyCap: 40,
+  });
+  assert.equal(clamped.adFreePassHours, 1);
+  assert.equal(clamped.adFreePassPerDay, AD_DEFAULTS.adFreePassPerDay);
+  assert.equal(clamped.adFreePassMaxHours, 3);
+  assert.equal(clamped.afterAdFreeCooldownSec, 300);
+  assert.equal(clamped.quizUnlockPerDay, AD_DEFAULTS.quizUnlockPerDay);
+  assert.equal(clamped.afterRewardedCooldownSec, 120);
+  assert.equal(clamped.rewardedDailyCap, AD_DEFAULTS.rewardedDailyCap);
 });
 
 test('fullscreen reload backs off and then caps', () => {

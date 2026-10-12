@@ -17,6 +17,7 @@ import {
   canShowBanner,
   countForToday,
   fullscreenReloadDelayMs,
+  grantRewardedReward,
   initBlockReason,
   interstitialBlockReason,
   isAdFree,
@@ -41,6 +42,7 @@ import {
   type AdsContextValue,
   type FullscreenLoadState,
   type SdkInitStatus,
+  type RewardedShowOptions,
   type ShowInterstitialResult,
   type ShowRewardedResult,
   type SuppressionReason,
@@ -805,7 +807,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   );
 
   const showRewarded = useCallback(
-    async (kind: RewardedKind, options?: { articleId?: string }): Promise<ShowRewardedResult> => {
+    async (kind: RewardedKind, options?: RewardedShowOptions): Promise<ShowRewardedResult> => {
       const input = policyInput();
       const blocked = rewardedBlockReason(kind, input);
       if (blocked) {
@@ -841,6 +843,10 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         setRewardedFlag(false);
         setRewardedLoadState('idle');
         preloadRewardedRef.current();
+        if (earned) {
+          await commit((prev) => grantRewardedReward(prev, kind, Date.now(), configRef.current, options));
+          return 'earned';
+        }
         return 'error';
       }
       note('rewarded showing', { kind });
@@ -848,28 +854,16 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       unsub();
       held.showing = false;
       const presented = result.opened || result.outcome === 'closed';
-      if (presented) {
+      if (earned) {
         const now = Date.now();
-        await commit((prev) => {
-          const quizUnlocks =
-            earned && kind === 'quiz_unlock' && options?.articleId && !prev.quizUnlocks.includes(options.articleId)
-              ? [...prev.quizUnlocks, options.articleId]
-              : prev.quizUnlocks;
-          return {
-            ...prev,
-            quizUnlocks,
-            quizUnlocksToday:
-              earned && kind === 'quiz_unlock' ? bumpToday(prev.quizUnlocksToday, now) : prev.quizUnlocksToday,
-            adFreeUntil:
-              earned && kind === 'ad_free' ? now + configRef.current.adFreePassHours * 60 * 60 * 1000 : prev.adFreeUntil,
-            extraSpeedsUntil:
-              earned && kind === 'extra_speeds'
-                ? now + configRef.current.extraSpeedsHours * 60 * 60 * 1000
-                : prev.extraSpeedsUntil,
-            rewardedToday: bumpToday(prev.rewardedToday, now),
-            lastRewardedClosedAt: now,
-          };
-        });
+        await commit((prev) => grantRewardedReward(prev, kind, now, configRef.current, options));
+      } else if (presented) {
+        const now = Date.now();
+        await commit((prev) => ({
+          ...prev,
+          rewardedToday: bumpToday(prev.rewardedToday, now),
+          lastRewardedClosedAt: now,
+        }));
       }
       if (rewardedRef.current === held) {
         held.ad.destroy();
@@ -878,12 +872,16 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         setRewardedLoadState('idle');
       }
       preloadRewardedRef.current();
+      if (earned) {
+        note('rewarded granted', { kind });
+        return 'earned';
+      }
       if (!presented) {
         note('rewarded closed without presenting', { kind, outcome: result.outcome });
         return 'error';
       }
-      note(earned ? 'rewarded granted' : 'rewarded closed without a reward', { kind });
-      return earned ? 'earned' : 'closed';
+      note('rewarded closed without a reward', { kind });
+      return 'closed';
     },
     [commit, note, policyInput],
   );
@@ -944,11 +942,25 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       fullscreenToday: { date: '', count: 0 },
       rewardedToday: { date: '', count: 0 },
       quizUnlocksToday: { date: '', count: 0 },
+      adFreePassesToday: { date: '', count: 0 },
       lastRewardedClosedAt: null,
       adFreeUntil: null,
       extraSpeedsUntil: null,
-      quizUnlocks: [],
+      quizExtra: {},
+      quizOffersShown: 0,
+      quizOffersAccepted: 0,
     }));
+  }, [commit]);
+
+  const recordQuizOfferShown = useCallback(async () => {
+    await commit((prev) => ({ ...prev, quizOffersShown: prev.quizOffersShown + 1 }));
+  }, [commit]);
+
+  const resetQuizExtra = useCallback(async (articleId: string) => {
+    await commit((prev) => {
+      if ((prev.quizExtra[articleId] ?? 0) === 0) return prev;
+      return { ...prev, quizExtra: { ...prev.quizExtra, [articleId]: 0 } };
+    });
   }, [commit]);
 
   const value = useMemo<AdsContextValue>(() => {
@@ -977,11 +989,13 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       rewardedLoaded,
       config,
       suppressed,
-      quizUnlocked: (articleId: string) => state?.quizUnlocks.includes(articleId) ?? false,
+      quizExtra: (articleId: string) => state?.quizExtra[articleId] ?? 0,
       suppress,
       release,
       showInterstitialIfEligible,
       showRewarded,
+      recordQuizOfferShown,
+      resetQuizExtra,
       preloadInterstitial,
       preloadRewarded,
       unitId,
@@ -995,6 +1009,10 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       saveInterstitialCounter: state?.saveInterstitialCounter ?? 0,
       lastFullscreenAt: state?.lastFullscreenAt ?? null,
       fullscreenTodayCount: state ? countForToday(state.fullscreenToday, now) : 0,
+      adFreePassesToday: state ? countForToday(state.adFreePassesToday, now) : 0,
+      quizRewardsToday: state ? countForToday(state.quizUnlocksToday, now) : 0,
+      quizOffersShown: state?.quizOffersShown ?? 0,
+      quizOffersAccepted: state?.quizOffersAccepted ?? 0,
       interstitialLoadState,
       rewardedLoadState,
       canRequestAds: canRequestAds && !isPro,
@@ -1021,7 +1039,9 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     ready,
     recordAdLoadError,
     release,
+    recordQuizOfferShown,
     resetAdCounters,
+    resetQuizExtra,
     rewardedLoaded,
     rewardedLoadState,
     showConsentDebug,
@@ -1036,7 +1056,10 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!adState) return;
     const deadlines: number[] = [];
-    if (adState.adFreeUntil != null) deadlines.push(adState.adFreeUntil);
+    if (adState.adFreeUntil != null) {
+      deadlines.push(adState.adFreeUntil);
+      deadlines.push(adState.adFreeUntil + config.afterAdFreeCooldownSec * 1000);
+    }
     if (adState.extraSpeedsUntil != null) deadlines.push(adState.extraSpeedsUntil);
     if (adState.lastRewardedClosedAt != null) {
       deadlines.push(adState.lastRewardedClosedAt + config.afterRewardedCooldownSec * 1000);
@@ -1045,7 +1068,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     if (wait.length === 0) return;
     const id = setTimeout(() => setNow(Date.now()), Math.min(...wait));
     return () => clearTimeout(id);
-  }, [adState, config.afterRewardedCooldownSec, now]);
+  }, [adState, config.afterAdFreeCooldownSec, config.afterRewardedCooldownSec, now]);
 
   return <AdsContext.Provider value={value}>{children}</AdsContext.Provider>;
 }

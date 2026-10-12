@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button } from '@/components/ui';
 import { useAds } from '@/lib/ads/ads-context';
 import { useEntitlement } from '@/lib/entitlement';
 import { saveStudy } from '@/lib/articles';
-import { getStudyEngine } from '@/lib/study';
+import { planQuizOffer, visibleQuizCount } from '@/lib/quiz-reward';
+import { freshQuizIfDifferent, getStudyEngine } from '@/lib/study';
 import type { Article, QuizQuestion } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
 import { useDatabase } from '@/lib/database';
@@ -21,24 +22,42 @@ export function StudyPanel({
 }) {
   const { colors } = useAppTheme();
   const { db } = useDatabase();
-  const { isPro } = useEntitlement();
+  const { isPro, proEnabled } = useEntitlement();
   const ads = useAds();
-  const { suppress, release, preloadRewarded, showRewarded } = ads;
+  const { suppress, release, preloadRewarded, showRewarded, recordQuizOfferShown, resetQuizExtra } = ads;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [declinedOffer, setDeclinedOffer] = useState(false);
+  const countedOffer = useRef(false);
 
   const questions = article.quiz?.questions ?? [];
-  const unlocked = isPro || ads.quizUnlocked(article.id) || Platform.OS === 'web';
-  const capApplies = !unlocked && ads.sessionCount >= ads.config.minSessionForAds;
-  const activeQuestions = capApplies ? questions.slice(0, ads.config.quizFreeQuestionCap) : questions;
-  const lockedCount = Math.max(0, questions.length - activeQuestions.length);
+  const capApplies = !(proEnabled && isPro) && Platform.OS !== 'web' && ads.sessionCount >= ads.config.minSessionForAds;
+  const extra = ads.quizExtra(article.id);
+  const visibleCount = visibleQuizCount({
+    questionCount: questions.length,
+    capApplies,
+    freeCap: ads.config.quizFreeQuestionCap,
+    extra,
+  });
+  const activeQuestions = questions.slice(0, visibleCount);
   const question = activeQuestions[cursor];
-  const inQuiz = !finished && (picked !== null || cursor > 0);
-  const showUnlock = lockedCount > 0 && !inQuiz;
+  const freshQuiz = useMemo(() => {
+    if (!article.quiz || article.quiz.questions.length === 0) return null;
+    return freshQuizIfDifferent({ title: article.title, content: article.content }, article.quiz.questions);
+  }, [article.content, article.quiz, article.title]);
+  const offerPlan = planQuizOffer({
+    questionCount: questions.length,
+    capApplies,
+    freeCap: ads.config.quizFreeQuestionCap,
+    extra,
+    rewardQuestions: ads.config.quizRewardQuestions,
+    freshAvailable: freshQuiz != null,
+  });
+  const showOffer = finished && !declinedOffer && offerPlan.kind !== 'hide' && ads.canOfferRewarded('quiz_unlock');
 
   useEffect(() => {
     const inProgress = !finished && (picked !== null || cursor > 0);
@@ -51,14 +70,25 @@ export function StudyPanel({
   }, [release]);
 
   useEffect(() => {
-    if (showUnlock && ads.ready && ads.canRequestAds) preloadRewarded();
-  }, [ads.canRequestAds, ads.ready, preloadRewarded, showUnlock]);
+    if (showOffer && ads.ready && ads.canRequestAds) preloadRewarded();
+  }, [ads.canRequestAds, ads.ready, preloadRewarded, showOffer]);
+
+  useEffect(() => {
+    if (!finished) {
+      countedOffer.current = false;
+      return;
+    }
+    if (!showOffer || countedOffer.current) return;
+    countedOffer.current = true;
+    void recordQuizOfferShown();
+  }, [finished, recordQuizOfferShown, showOffer]);
 
   const resetQuiz = () => {
     setCursor(0);
     setPicked(null);
     setCorrectCount(0);
     setFinished(false);
+    setDeclinedOffer(false);
   };
 
   const generate = async () => {
@@ -70,6 +100,7 @@ export function StudyPanel({
       const summary = engine.summarize({ title: article.title, content: article.content });
       const quiz = engine.buildQuiz({ title: article.title, content: article.content });
       await saveStudy(db, article.id, summary, quiz);
+      await resetQuizExtra(article.id);
       onChange({ ...article, summary, quiz });
       resetQuiz();
     } catch (cause) {
@@ -85,30 +116,53 @@ export function StudyPanel({
     if (index === question.answerIndex) setCorrectCount((count) => count + 1);
   };
 
-  const unlockLabel = ads.canOfferRewarded('quiz_unlock')
-    ? ads.rewardedLoaded
-      ? `Watch an ad for ${lockedCount} more questions`
-      : 'Ad not ready'
-    : 'Not available right now';
+  const watchForMore = () => {
+    if (!ads.rewardedLoaded || !ads.canOfferRewarded('quiz_unlock')) {
+      preloadRewarded();
+      return;
+    }
+    const start = activeQuestions.length;
+    const replacement = freshQuiz;
+    const fresh = offerPlan.kind === 'fresh';
+    void showRewarded('quiz_unlock', {
+      articleId: article.id,
+      quizQuestionCount: questions.length,
+      quizFresh: fresh,
+    }).then(async (result) => {
+      if (result !== 'earned') return;
+      if (fresh && replacement) {
+        if (db && article.summary) {
+          try {
+            await saveStudy(db, article.id, article.summary, replacement);
+          } catch {
+            // The earned reward still replaces the questions on screen.
+          }
+        }
+        onChange({ ...article, summary: article.summary, quiz: replacement });
+        setCursor(0);
+        setCorrectCount(0);
+      } else {
+        setCursor(start);
+      }
+      setPicked(null);
+      setFinished(false);
+      setDeclinedOffer(false);
+    });
+  };
 
-  const unlockOffer = showUnlock ? (
+  const rewardOffer = showOffer ? (
     <View style={styles.reward}>
       <Button
-        label={unlockLabel}
-        onPress={() => {
-          if (!ads.canOfferRewarded('quiz_unlock') || !ads.rewardedLoaded) {
-            preloadRewarded();
-            return;
-          }
-          void showRewarded('quiz_unlock', { articleId: article.id }).then((result) => {
-            if (result === 'earned') resetQuiz();
-          });
-        }}
-        disabled={!ads.canOfferRewarded('quiz_unlock') || !ads.rewardedLoaded}
+        label="Watch a short ad for 3 more questions"
+        onPress={watchForMore}
+        disabled={!ads.rewardedLoaded}
       />
-      <AppText variant="meta" color={colors.faint}>
-        Optional
-      </AppText>
+      {!ads.rewardedLoaded ? (
+        <AppText variant="meta" color={colors.faint}>
+          The ad is still loading.
+        </AppText>
+      ) : null}
+      <Button label="No thanks" variant="ghost" onPress={() => setDeclinedOffer(true)} />
     </View>
   ) : null;
 
@@ -178,14 +232,13 @@ export function StudyPanel({
           <AppText variant="title">
             {correctCount} of {activeQuestions.length}
           </AppText>
-          {unlockOffer}
+          {rewardOffer}
           <Button label="Try the quiz again" variant="secondary" onPress={resetQuiz} />
         </View>
       ) : null}
 
       {question && !finished ? (
         <View style={styles.quiz}>
-          {cursor === 0 && picked === null ? unlockOffer : null}
           <AppText variant="label" color={colors.faint}>
             Question {cursor + 1} of {activeQuestions.length}
           </AppText>

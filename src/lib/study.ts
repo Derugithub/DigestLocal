@@ -345,7 +345,24 @@ export function summarize(input: StudyInput): string {
     .join(' ');
 }
 
-export function buildQuiz(input: StudyInput, now = new Date()): Quiz {
+export function quizQuestionKey(prompt: string, answer: string): string {
+  return `${prompt.trim().toLowerCase()}\n${answer.trim().toLowerCase()}`;
+}
+
+export function sameQuizSet(left: QuizQuestion[], right: QuizQuestion[]): boolean {
+  if (left.length !== right.length) return false;
+  const keys = (questions: QuizQuestion[]) =>
+    questions.map((question) => quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')).sort();
+  const a = keys(left);
+  const b = keys(right);
+  return a.every((key, index) => key === b[index]);
+}
+
+export function buildQuiz(
+  input: StudyInput,
+  now = new Date(),
+  options?: { exclude?: ReadonlySet<string> },
+): Quiz {
   const sentences = splitSentences(input.content);
   const ranked = scoreSentences(sentences, input.title)
     .filter((sentence) => sentence.score > 0)
@@ -355,9 +372,11 @@ export function buildQuiz(input: StudyInput, now = new Date()): Quiz {
   const selected: DraftQuestion[] = [];
   const used = new Set<number>();
   const seenPrompts = new Set<string>();
+  const exclude = options?.exclude;
 
   for (const draft of conceptDrafts(ranked)) {
     if (selected.length >= target) break;
+    if (exclude?.has(quizQuestionKey(draft.prompt, draft.answer))) continue;
     if (used.has(draft.sentenceIndex) || seenPrompts.has(draft.prompt.toLowerCase())) continue;
     selected.push(draft);
     used.add(draft.sentenceIndex);
@@ -370,7 +389,7 @@ export function buildQuiz(input: StudyInput, now = new Date()): Quiz {
     if (used.has(sentence.index)) continue;
     const draft = fromTakeaway(sentence, takeawayIndex);
     takeawayIndex += 1;
-    if (!draft || seenPrompts.has(draft.prompt.toLowerCase())) continue;
+    if (!draft || exclude?.has(quizQuestionKey(draft.prompt, draft.answer)) || seenPrompts.has(draft.prompt.toLowerCase())) continue;
     selected.push(draft);
     used.add(sentence.index);
     seenPrompts.add(draft.prompt.toLowerCase());
@@ -403,6 +422,25 @@ export function buildQuiz(input: StudyInput, now = new Date()): Quiz {
     questions,
     note: questions.length === 0 ? 'Not enough article text to build a quiz.' : undefined,
   };
+}
+
+/**
+ * Another set for the same article, or null when every question would repeat the previous set.
+ * The heuristic is deterministic, so this only succeeds when unused sentences can still form questions.
+ */
+export function freshQuizIfDifferent(input: StudyInput, previous: QuizQuestion[], now = new Date()): Quiz | null {
+  if (previous.length === 0) return null;
+  const exclude = new Set(
+    previous.map((question) => quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')),
+  );
+  const next = buildQuiz(input, now, { exclude });
+  if (next.questions.length === 0) return null;
+  if (sameQuizSet(previous, next.questions)) return null;
+  const novel = next.questions.some(
+    (question) => !exclude.has(quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')),
+  );
+  if (!novel) return null;
+  return next;
 }
 
 export const heuristicEngine: StudyEngine = {

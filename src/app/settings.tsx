@@ -2,11 +2,12 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 
 import { PaywallSheet } from '@/components/paywall-sheet';
 import { AppText, Button, IconButton, Note, Screen, Segmented } from '@/components/ui';
-import { PRIVACY_POLICY_URL } from '@/lib/ads/ad-config';
+import { PRIVACY_POLICY_URL, SUPPORT_EMAIL } from '@/lib/ads/ad-config';
+import { formatAdFreeRemaining } from '@/lib/ads/ad-policy';
 import { AD_PLACEMENTS } from '@/lib/ads/ad-units';
 import { useAds, type AdsContextValue } from '@/lib/ads/ads-context';
 import { isTestAdsMode } from '@/lib/ads/ads-mode';
@@ -21,12 +22,12 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 const NETWORK_NOTE =
-  'Your saved articles never leave your device. DigestLocal has no account and no cloud library. When you save a page, the app downloads that page and its images once. Reading, listening, summaries, and quizzes use the copy on this device and do not download images again.\n\nAds are loaded from Google AdMob and never receive your article text, saved links, or quiz results. We request non-personalized ads by default. Pro removes ads entirely, so no ad network is contacted.';
+  'Your saved articles never leave your device. DigestLocal has no account and no cloud library. When you save a page, the app downloads that page and its images once. Reading, listening, summaries, and quizzes use the copy on this device and do not download images again.\n\nAds are loaded from Google AdMob and never receive your article text, saved links, or quiz results. We request non-personalized ads by default.';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { colors, preference, setPreference } = useAppTheme();
-  const { isPro, setPro, billing } = useEntitlement();
+  const { isPro, proEnabled, setPro, billing } = useEntitlement();
   const ads = useAds();
   const version = Constants.expoConfig?.version ?? '1.0.0';
   const [billingAvailable, setBillingAvailable] = useState(false);
@@ -36,6 +37,7 @@ export default function SettingsScreen() {
   const [debugNow, setDebugNow] = useState(() => Date.now());
 
   useEffect(() => {
+    if (!proEnabled) return;
     let cancelled = false;
     billing
       .isAvailable()
@@ -52,32 +54,30 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [billing]);
+  }, [billing, proEnabled]);
 
   useEffect(() => {
-    if (!isPro && !ads.adFree && ads.canOfferRewarded('ad_free')) ads.preloadRewarded();
+    if (!isPro && ads.canOfferRewarded('ad_free')) ads.preloadRewarded();
   }, [ads, isPro]);
 
   useEffect(() => {
-    if (!isTestAdsMode()) return;
-    const id = setInterval(() => setDebugNow(Date.now()), 1000);
+    if (!isTestAdsMode() && !ads.adFree) return;
+    const id = setInterval(() => setDebugNow(Date.now()), isTestAdsMode() ? 1000 : 30_000);
     return () => clearInterval(id);
-  }, []);
+  }, [ads.adFree]);
 
   const openPrivacyPolicy = () => {
     void WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL);
   };
 
-  const adFreeLabel = ads.adFreeUntil
-    ? `Ad-free until ${new Date(ads.adFreeUntil).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })}`
-    : null;
+  const openSupport = () => {
+    void Linking.openURL(`mailto:${SUPPORT_EMAIL}`);
+  };
 
-  const showPaywall = ads.config.paywallEnabled && billingAvailable && !isPro;
+  const adFreeLabel = ads.adFree && ads.adFreeUntil ? formatAdFreeRemaining(ads.adFreeUntil, debugNow) : null;
+  const adFreeReady = ads.canOfferRewarded('ad_free') && ads.rewardedLoaded;
+
+  const showPaywall = proEnabled && ads.config.paywallEnabled && billingAvailable && !isPro;
   const showPrivacyChoices = !isPro && (ads.privacyOptionsRequired || ads.ready);
 
   return (
@@ -107,6 +107,7 @@ export default function SettingsScreen() {
           </AppText>
           <Note kicker="Network & privacy" body={NETWORK_NOTE} />
           <Button label="Privacy policy" variant="secondary" onPress={openPrivacyPolicy} />
+          <Button label={`Email ${SUPPORT_EMAIL}`} variant="secondary" onPress={openSupport} />
           {showPrivacyChoices ? (
             <Button
               label={ads.privacyOptionsRequired ? 'Privacy options' : 'Ad privacy choices'}
@@ -119,34 +120,35 @@ export default function SettingsScreen() {
             <AppText variant="ui" color={colors.ink}>
               Pro: ads removed. Thank you!
             </AppText>
-          ) : showPaywall ? (
-            <Button label="Remove ads (Pro)" onPress={() => setPaywallOpen(true)} />
-          ) : (
-            <View style={[styles.row, { backgroundColor: colors.elevated, borderColor: colors.line }]}>
-              <AppText variant="uiMedium">Remove ads (Pro)</AppText>
-              <AppText variant="meta" color={colors.faint}>
-                Coming soon. Meanwhile you can take a 24-hour break from ads.
-              </AppText>
-            </View>
-          )}
-
-          {!isPro && ads.adFree && adFreeLabel ? (
-            <AppText variant="ui" color={colors.soft}>
-              {adFreeLabel}
-            </AppText>
           ) : null}
-          {!isPro && !ads.adFree ? (
+          {showPaywall ? <Button label="Remove ads (Pro)" onPress={() => setPaywallOpen(true)} /> : null}
+
+          {!isPro ? (
             <View style={[styles.row, { backgroundColor: colors.elevated, borderColor: colors.line }]}>
               <AppText variant="uiMedium">Take a break from ads</AppText>
               <AppText variant="meta" color={colors.faint}>
-                Watch one short ad to turn off banners and full-screen ads for 24 hours.
+                One short ad turns off banners and full-screen ads for 1 hour. Hours stack up to 3, and you can take 6 breaks each day.
               </AppText>
+              {adFreeLabel ? (
+                <AppText variant="ui" color={colors.soft}>
+                  Ad-free: {adFreeLabel}
+                </AppText>
+              ) : null}
               <Button
-                label={ads.canOfferRewarded('ad_free') && ads.rewardedLoaded ? 'Watch ad' : ads.canOfferRewarded('ad_free') ? 'Ad not ready' : 'Not available right now'}
+                label="Watch a short ad for 1 hour ad-free"
                 variant="secondary"
-                disabled={!ads.canOfferRewarded('ad_free') || !ads.rewardedLoaded}
+                disabled={!adFreeReady}
                 onPress={() => void ads.showRewarded('ad_free')}
               />
+              {!ads.canOfferRewarded('ad_free') ? (
+                <AppText variant="meta" color={colors.faint}>
+                  Not available right now
+                </AppText>
+              ) : !ads.rewardedLoaded ? (
+                <AppText variant="meta" color={colors.faint}>
+                  Ad not ready
+                </AppText>
+              ) : null}
             </View>
           ) : null}
           {restoreNote ? (
@@ -161,7 +163,9 @@ export default function SettingsScreen() {
             <AppText variant="label" color={colors.faint}>
               Developer
             </AppText>
-            <Button label={isPro ? 'Dev: toggle Pro (on)' : 'Dev: toggle Pro'} variant="secondary" onPress={() => void setPro(!isPro)} />
+            {proEnabled ? (
+              <Button label={isPro ? 'Dev: toggle Pro (on)' : 'Dev: toggle Pro'} variant="secondary" onPress={() => void setPro(!isPro)} />
+            ) : null}
             <Button
               label="Dev: show consent form (debug geography EEA)"
               variant="secondary"
@@ -197,34 +201,36 @@ export default function SettingsScreen() {
           </AppText>
         </View>
       </ScrollView>
-      <PaywallSheet
-        visible={paywallOpen}
-        price={price}
-        onClose={() => setPaywallOpen(false)}
-        onBuy={() => {
-          void billing.purchasePro().then((result) => {
-            if (result === 'purchased') {
-              void setPro(true);
-              setPaywallOpen(false);
-            }
-          });
-        }}
-        onRestore={() => {
-          void billing.restore().then((owned) => {
-            if (owned) {
-              void setPro(true);
-              setPaywallOpen(false);
-              setRestoreNote('Pro restored on this device.');
-              return;
-            }
-            setRestoreNote('No purchase was found on this device.');
-          });
-        }}
-        onAdFree={() => {
-          setPaywallOpen(false);
-          void ads.showRewarded('ad_free');
-        }}
-      />
+      {proEnabled ? (
+        <PaywallSheet
+          visible={paywallOpen}
+          price={price}
+          onClose={() => setPaywallOpen(false)}
+          onBuy={() => {
+            void billing.purchasePro().then((result) => {
+              if (result === 'purchased') {
+                void setPro(true);
+                setPaywallOpen(false);
+              }
+            });
+          }}
+          onRestore={() => {
+            void billing.restore().then((owned) => {
+              if (owned) {
+                void setPro(true);
+                setPaywallOpen(false);
+                setRestoreNote('Pro restored on this device.');
+                return;
+              }
+              setRestoreNote('No purchase was found on this device.');
+            });
+          }}
+          onAdFree={() => {
+            setPaywallOpen(false);
+            void ads.showRewarded('ad_free');
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -236,8 +242,23 @@ function initStatusLabel(status: AdsContextValue['initStatus']): string {
   return 'not started';
 }
 
+function adFreeReadout(ads: AdsContextValue, now: number): string {
+  const passes = `${ads.adFreePassesToday}/${ads.config.adFreePassPerDay} passes today`;
+  if (ads.adFreeUntil == null) return `inactive (${passes})`;
+  if (ads.adFreeUntil > now) {
+    const left = formatAdFreeRemaining(ads.adFreeUntil, now) ?? 'active';
+    return `${left}, stack cap ${ads.config.adFreePassMaxHours}h (${passes})`;
+  }
+  const holdUntil = ads.adFreeUntil + ads.config.afterAdFreeCooldownSec * 1000;
+  if (holdUntil > now) {
+    const seconds = Math.ceil((holdUntil - now) / 1000);
+    return `expired, interstitial hold ${seconds}s (${passes})`;
+  }
+  return `inactive (${passes})`;
+}
+
 function extraSpeedsLabel(ads: AdsContextValue): string {
-  if (ads.isPro) return 'included with Pro';
+  if (ads.isPro) return 'unlocked';
   if (ads.extraSpeedsUntil != null && ads.extraSpeedsUntil > Date.now()) {
     return `unlocked until ${new Date(ads.extraSpeedsUntil).toLocaleString(undefined, {
       month: 'short',
@@ -272,6 +293,9 @@ function adsStatusText(ads: AdsContextValue, now: number): string {
     `Interstitial load: ${ads.interstitialLoadState}`,
     `Rewarded load: ${ads.rewardedLoadState}`,
     `Quiz free questions: ${ads.config.quizFreeQuestionCap}`,
+    `Ad-free: ${adFreeReadout(ads, now)}`,
+    `Quiz rewards today: ${ads.quizRewardsToday}/${ads.config.quizUnlockPerDay}`,
+    `Quiz offers: ${ads.quizOffersShown} shown, ${ads.quizOffersAccepted} accepted`,
     `Extra speeds: ${extraSpeedsLabel(ads)}`,
     `Last ad error: ${ads.lastLoadError ?? 'none'}`,
     `Last decision: ${ads.lastDecision}`,

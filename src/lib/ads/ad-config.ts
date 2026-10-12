@@ -16,14 +16,24 @@ export const AD_DEFAULTS = {
   interstitialEveryNSaves: 3,
   fullscreenCooldownSec: 240,
   fullscreenDailyCap: 3,
-  afterRewardedCooldownSec: 60,
-  rewardedDailyCap: 6,
-  adFreePassHours: 24,
-  adFreePassPerDay: 1,
+  afterRewardedCooldownSec: 120,
+  /**
+   * Shared ceiling for rewarded shows: 6 ad-free passes, 8 quiz rewards, and 1 extra-speeds unlock.
+   * The per-kind caps are the limits people hit. This one only keeps the shared counter from cutting those short.
+   */
+  rewardedDailyCap: 15,
+  adFreePassHours: 1,
+  adFreePassPerDay: 6,
+  /** Stacked ad-free time cannot run longer than this, even when passes overlap. */
+  adFreePassMaxHours: 3,
+  /** After a pass expires, interstitials wait. Banners can return immediately. */
+  afterAdFreeCooldownSec: 300,
   /** Most articles produce 5 or fewer questions, so 5 never showed the unlock. */
   quizFreeQuestionCap: 3,
+  /** Questions added by one earned quiz reward, still capped by the 8-question maximum. */
+  quizRewardQuestions: 3,
   extraSpeedsHours: 24,
-  quizUnlockPerDay: 3,
+  quizUnlockPerDay: 8,
   shelfBannerEnabled: true,
   articleEndBannerEnabled: true,
   saveInterstitialEnabled: true,
@@ -50,7 +60,10 @@ export type AdConfig = {
   rewardedDailyCap: number;
   adFreePassHours: number;
   adFreePassPerDay: number;
+  adFreePassMaxHours: number;
+  afterAdFreeCooldownSec: number;
   quizFreeQuestionCap: number;
+  quizRewardQuestions: number;
   extraSpeedsHours: number;
   quizUnlockPerDay: number;
   shelfBannerEnabled: boolean;
@@ -63,8 +76,11 @@ export type AdConfig = {
   remoteConfigUrl: string;
 };
 
-/** Placeholder. Replace with the hosted privacy policy before release. */
-export const PRIVACY_POLICY_URL = 'https://derugithub.github.io/privacy';
+/** Hosted privacy policy, linked from Settings. */
+export const PRIVACY_POLICY_URL = 'https://derugithub.github.io/Privacy-policy/digestlocal/';
+
+/** Support address shown in Settings and the store notes. */
+export const SUPPORT_EMAIL = 'movadmob@gmail.com';
 
 /**
  * Placeholder. app-ads.txt must be served at the root of this domain
@@ -108,7 +124,10 @@ type NumericKey =
   | 'rewardedDailyCap'
   | 'adFreePassHours'
   | 'adFreePassPerDay'
+  | 'adFreePassMaxHours'
+  | 'afterAdFreeCooldownSec'
   | 'quizFreeQuestionCap'
+  | 'quizRewardQuestions'
   | 'extraSpeedsHours'
   | 'quizUnlockPerDay';
 
@@ -128,14 +147,17 @@ const NUMERIC_RULES: {
   { key: 'minSecondsIntoSessionForInterstitial', stricter: 'higher', min: 90, max: 3600 },
   { key: 'interstitialEveryNSaves', stricter: 'higher', min: 2, max: 20 },
   { key: 'fullscreenCooldownSec', stricter: 'higher', min: 240, max: 3600 },
-  { key: 'afterRewardedCooldownSec', stricter: 'higher', min: 60, max: 3600 },
+  { key: 'afterRewardedCooldownSec', stricter: 'higher', min: 120, max: 3600 },
   { key: 'fullscreenDailyCap', stricter: 'lower', min: 0, max: 5 },
-  { key: 'rewardedDailyCap', stricter: 'lower', min: 0, max: 6 },
+  { key: 'rewardedDailyCap', stricter: 'lower', min: 0, max: 15 },
   { key: 'adFreePassHours', stricter: 'lower', min: 1, max: 24 },
-  { key: 'adFreePassPerDay', stricter: 'lower', min: 0, max: 1 },
+  { key: 'adFreePassPerDay', stricter: 'lower', min: 0, max: 6 },
+  { key: 'adFreePassMaxHours', stricter: 'lower', min: 1, max: 3 },
+  { key: 'afterAdFreeCooldownSec', stricter: 'higher', min: 300, max: 3600 },
   { key: 'quizFreeQuestionCap', stricter: 'lower', min: 1, max: 3 },
+  { key: 'quizRewardQuestions', stricter: 'lower', min: 1, max: 3 },
   { key: 'extraSpeedsHours', stricter: 'lower', min: 1, max: 24 },
-  { key: 'quizUnlockPerDay', stricter: 'lower', min: 0, max: 3 },
+  { key: 'quizUnlockPerDay', stricter: 'lower', min: 0, max: 8 },
 ];
 
 function clamp(value: number, min: number, max: number): number {
