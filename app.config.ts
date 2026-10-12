@@ -2,6 +2,13 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 import { resolveMobileAdsAppIds, syncRootMobileAdsAppIds } from './src/lib/ads/android-app-id.js';
 
+function proEnabledFromValue(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
 /**
  * app.json stays the source for everything except the resolved AdMob app IDs and ads mode.
  * Non-live builds substitute Google's sample app IDs so a placeholder never reaches the SDK.
@@ -38,6 +45,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ] as [string, Record<string, unknown>];
   });
 
+  const proEnv = process.env.EXPO_PUBLIC_PRO_ENABLED;
+  const proEnabled =
+    proEnv != null && proEnv.trim() !== ''
+      ? proEnabledFromValue(proEnv)
+      : proEnabledFromValue(config.extra?.proEnabled);
+
   return {
     ...config,
     name: config.name ?? 'DigestLocal',
@@ -46,6 +59,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       ...config.extra,
       adsMode,
+      proEnabled,
     },
   };
 };

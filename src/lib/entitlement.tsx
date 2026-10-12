@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { isProEnabled } from '@/lib/pro-flag';
+
 export const PRO_STORAGE_KEY = 'entitlement.pro';
 
 export interface BillingProvider {
@@ -39,6 +41,8 @@ export class StubBillingProvider implements BillingProvider {
 
 type EntitlementValue = {
   ready: boolean;
+  /** True only when the build flag is on and this device has the entitlement. */
+  proEnabled: boolean;
   isPro: boolean;
   setPro: (value: boolean) => Promise<void>;
   billing: BillingProvider;
@@ -46,17 +50,20 @@ type EntitlementValue = {
 
 const EntitlementContext = createContext<EntitlementValue>({
   ready: false,
+  proEnabled: false,
   isPro: false,
   setPro: async () => undefined,
   billing: new StubBillingProvider(),
 });
 
 export function EntitlementProvider({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false);
+  const proEnabled = isProEnabled();
+  const [ready, setReady] = useState(!proEnabled);
   const [isPro, setIsPro] = useState(false);
   const billing = useMemo(() => new StubBillingProvider(), []);
 
   useEffect(() => {
+    if (!proEnabled) return;
     let cancelled = false;
     import('expo-sqlite/kv-store')
       .then((module) => module.default.getItem(PRO_STORAGE_KEY))
@@ -70,9 +77,10 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [proEnabled]);
 
   const setPro = useCallback(async (value: boolean) => {
+    if (!proEnabled) return;
     setIsPro(value);
     try {
       const storage = (await import('expo-sqlite/kv-store')).default;
@@ -81,9 +89,12 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
     } catch {
       // The in-memory switch still hides ads for this session.
     }
-  }, []);
+  }, [proEnabled]);
 
-  const value = useMemo(() => ({ ready, isPro, setPro, billing }), [billing, isPro, ready, setPro]);
+  const value = useMemo(
+    () => ({ ready, proEnabled, isPro: proEnabled && isPro, setPro, billing }),
+    [billing, isPro, proEnabled, ready, setPro],
+  );
   return <EntitlementContext.Provider value={value}>{children}</EntitlementContext.Provider>;
 }
 

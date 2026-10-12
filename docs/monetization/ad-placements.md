@@ -17,13 +17,16 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 | interstitialEveryNSaves | 3 |
 | fullscreenCooldownSec | 240 |
 | fullscreenDailyCap | 3 |
-| afterRewardedCooldownSec | 60 |
-| rewardedDailyCap | 6 |
-| adFreePassHours | 24 |
-| adFreePassPerDay | 1 |
+| afterRewardedCooldownSec | 120 |
+| rewardedDailyCap | 15 |
+| adFreePassHours | 1 |
+| adFreePassPerDay | 6 |
+| adFreePassMaxHours | 3 |
+| afterAdFreeCooldownSec | 300 |
 | quizFreeQuestionCap | 3 |
+| quizRewardQuestions | 3 |
 | extraSpeedsHours | 24 |
-| quizUnlockPerDay | 3 |
+| quizUnlockPerDay | 8 |
 | shelfBannerEnabled | true |
 | articleEndBannerEnabled | true |
 | saveInterstitialEnabled | true |
@@ -39,7 +42,7 @@ Every ad request sets `requestNonPersonalizedAdsOnly` and nothing else. Article 
 
 ## Global gate
 
-A placement can render only when all of these are true: not Pro, the SDK is ready, UMP says ads can be requested, the ad-free pass is not active, nothing is suppressing ads, and `adsEnabled` is true.
+A placement can render only when all of these are true: the SDK is ready, UMP says ads can be requested, the ad-free pass is not active, nothing is suppressing ads, and `adsEnabled` is true. `EXPO_PUBLIC_PRO_ENABLED` and `extra.proEnabled` default to off. When that flag is on and the entitlement is owned, ads stay off. The shipped UI does not mention a purchase.
 
 Suppression reasons:
 
@@ -59,15 +62,15 @@ While any reason is active, banners unmount and interstitials do not show.
 | shelf_banner | Shelf, bottom, outside the list, inside the bottom safe area | Large anchored adaptive banner (`BannerAdSize.LARGE_ANCHORED_ADAPTIVE_BANNER` in react-native-google-mobile-ads 17.2; `ANCHORED_ADAPTIVE_BANNER` is deprecated) | Shelf has at least one article. Hidden while search has no hits or the keyboard is open. 16 dp above the banner. Labelled Advertisement, with a divider. | On from session 2 |
 | article_end_banner | Article, Read mode, after the last paragraph | Inline adaptive banner, width of the article column, max height 250 | Mounts when the reader is within one viewport of the end and the article is at least two viewports tall. 24 dp below the banner, above the mode bar's clearance. Not shown in Listen or Study. | On from session 2 |
 | save_interstitial | After a successful Keep on this device | Interstitial | Every 3rd save made in session 3 or later, plus the full-screen caps below. Saves in sessions 1 and 2 do not move the counter. Never from a share intent. Never on Discard. Preloaded once the SDK is ready, and shown only if already loaded. | On from session 3 |
-| study_rewarded | Study quiz, Listen speed, and Settings | Rewarded | Opt-in. Unlocks the rest of a capped quiz (free cap is 3 questions), 1.5× and 2× listening speeds for 24 hours, or a 24 hour ad-free pass. 0.9× to 1.3× stay free. Preloaded once the SDK is ready. | On from session 2 |
+| study_rewarded | Study quiz score, Listen speed, and Settings | Rewarded | Opt-in, never automatic. After the score screen, one offer can add the next 3 unanswered questions (free cap stays 3, maximum 8). If none remain, a fresh set is offered only when the generator can make questions that are not the previous set. Also unlocks 1.5× and 2× listening speeds for 24 hours, or a 1 hour ad-free pass that stacks to 3 hours. 0.9× to 1.3× stay free. Preloaded once the SDK is ready. | On from session 2 |
 | Back navigation | Article back button | — | Not implemented. `backNavInterstitialEnabled` stays false. | Off |
 | App open, native, collapsible | — | — | Not implemented. Flags stay off. | Off |
 
 ## Full-screen caps
 
-An interstitial also requires session count at least 3, at least 3 saved articles, at least 240 seconds since the previous full-screen ad, fewer than 3 full-screen ads on the local day, and at least 60 seconds since a rewarded ad closed. There is no minimum time into the session. If the Mobile Ads SDK cannot request ads, or init fails five times, the next try waits until the app returns to the foreground. A banner that fails to load retries with backoff instead of staying hidden.
+An interstitial also requires session count at least 3, at least 3 saved articles, at least 240 seconds since the previous full-screen ad, fewer than 3 full-screen ads on the local day, at least 120 seconds since a rewarded ad closed, and 300 seconds after an ad-free pass expires. Banners are not held for those 300 seconds. There is no minimum time into the session. If the Mobile Ads SDK cannot request ads, or init fails five times, the next try waits until the app returns to the foreground. A banner that fails to load retries with backoff instead of staying hidden.
 
-Rewarded shows count toward 6 per local day. Quiz unlocks are also capped at 3 per day. The ad-free pass is once per 24 hours.
+Rewarded shows share a ceiling of 15 per local day, which is 6 ad-free passes, 8 quiz rewards, and 1 extra-speeds unlock. Ad-free passes and quiz rewards also have those per-kind caps. A pass that is already running can be extended until 3 hours remain. The reward is applied only from the earned-reward callback, and it is applied whenever that callback fires. Quiz reward offers shown and accepted are counted locally for the dev and preview Settings readout.
 
 ## Test ads
 

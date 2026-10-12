@@ -56,7 +56,7 @@ export function PaywallSheet({
             ))}
           </View>
           <Button label={priceLabel} onPress={onBuy} />
-          <Button label="Watch an ad for 24 h ad-free" variant="secondary" onPress={onAdFree} />
+          <Button label="Watch a short ad for 1 hour ad-free" variant="secondary" onPress={onAdFree} />
           <Button label="Restore purchase" variant="ghost" onPress={onRestore} />
           <AppText variant="meta" color={colors.faint}>
             One-time purchase via Google Play. No account needed. Restore on any device signed in to the same Google account.
