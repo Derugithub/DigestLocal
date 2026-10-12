@@ -34,6 +34,11 @@ export type AdsContextValue = {
   showPrivacyOptions: () => Promise<void>;
   showConsentDebug: () => Promise<void>;
   resetAdCounters: () => Promise<void>;
+  /** Read-only status for the dev/preview Settings readout. Does not gate ads. */
+  sessionCount: number;
+  consentStatus: string;
+  lastLoadError: string | null;
+  recordAdLoadError: (error: unknown) => void;
 };
 
 export const idleAdsContext: AdsContextValue = {
@@ -58,6 +63,10 @@ export const idleAdsContext: AdsContextValue = {
   showPrivacyOptions: async () => undefined,
   showConsentDebug: async () => undefined,
   resetAdCounters: async () => undefined,
+  sessionCount: 0,
+  consentStatus: 'not read',
+  lastLoadError: null,
+  recordAdLoadError: () => undefined,
 };
 
 export const AdsContext = createContext<AdsContextValue>(idleAdsContext);

@@ -5,9 +5,11 @@ import {
   blocksFromHtml,
   blocksToHtml,
   blocksToPlainText,
+  collapseDuplicateFigures,
   mapFigureSources,
   remoteImageSources,
 } from '../src/lib/article-html.ts';
+import { extractArticle } from '../src/lib/extract.ts';
 
 const base = 'https://harbor.example/notes/ledger';
 
@@ -128,4 +130,111 @@ test('round-trips a saved digest-image source and rewrites remote ones', () => {
   assert.match(html, /<blockquote><p>Quoted<\/p><figure><img src="digest-image:2\.jpg"/);
   assert.doesNotMatch(html, /https:/);
   assert.deepEqual(blocksFromHtml(html, base), mapped);
+});
+
+function figureSrcs(html: string, page = base): string[] {
+  const srcs: string[] = [];
+  const walk = (blocks: ReturnType<typeof blocksFromHtml>) => {
+    for (const block of blocks) {
+      if (block.type === 'figure') srcs.push(block.src);
+      else if (block.type === 'quote') walk(block.blocks);
+      else if (block.type === 'list') {
+        for (const item of block.items) walk(item.blocks);
+      }
+    }
+  };
+  walk(blocksFromHtml(html, page));
+  return srcs;
+}
+
+test('collapses picture, source, img, and noscript into one figure', () => {
+  const html = htmlFor(`
+    <figure>
+      <picture>
+        <source srcset="https://cdn.example/hero.webp" type="image/webp">
+        <img src="https://cdn.example/hero.jpg" alt="Hero" width="400" height="200">
+      </picture>
+      <img src="https://cdn.example/hero.jpg" alt="Hero" width="800" height="400">
+      <figcaption>Morning <em>light</em></figcaption>
+    </figure>
+    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Lazy" width="800" height="450">
+    <noscript><img src="https://cdn.example/lazy.jpg" alt="Lazy" width="800" height="450"></noscript>
+    <picture>
+      <source media="(max-width: 640px)" srcset="https://lh3.googleusercontent.com/SAMEHASH=w640-h590-p-nu-pa, https://lh3.googleusercontent.com/SAMEHASH=w1280-h1180-p-nu-pa 2x">
+      <source media="(min-width: 641px)" srcset="https://lh3.googleusercontent.com/SAMEHASH=w630-h580-p-nu-pa, https://lh3.googleusercontent.com/SAMEHASH=w1260-h1162-p-nu-pa 2x">
+      <img src="https://lh3.googleusercontent.com/SAMEHASH=w630-h580-p-nu-pa" alt="Earn more" width="630" height="580">
+    </picture>
+    <p>The oak counter stays open for neighbors on Saturday morning.</p>
+  `);
+
+  assert.equal((html.match(/<figure/g) ?? []).length, 3);
+  assert.match(html, /src="https:\/\/cdn\.example\/hero\.jpg"/);
+  assert.match(html, /<figcaption>Morning <em>light<\/em><\/figcaption>/);
+  assert.doesNotMatch(html, /hero\.webp/);
+  assert.match(html, /src="https:\/\/cdn\.example\/lazy\.jpg"/);
+  assert.doesNotMatch(html, /data:image/);
+  assert.match(html, /src="https:\/\/lh3\.googleusercontent\.com\/SAMEHASH=w1280-h1180-p-nu-pa"/);
+  assert.doesNotMatch(html, /w640-h590|w630-h580|w1260-h1162/);
+});
+
+test('skips consecutive size variants and keeps a different following image', () => {
+  const srcs = figureSrcs(`
+    <img src="https://lh3.googleusercontent.com/HASH=w800-h600" alt="Shot" width="800" height="600">
+    <img src="https://lh3.googleusercontent.com/HASH=w1600-h1200" alt="Shot" width="1600" height="1200">
+    <img src="https://cdn.example/photos/pier-800x600.jpg?w=800&amp;h=600" alt="Pier" width="800" height="600">
+    <img src="https://cdn.example/photos/pier-1200x800.jpg?width=1200&amp;height=800" alt="Pier" width="1200" height="800">
+    <img src="https://cdn.example/photos/other.jpg?v=1" alt="Other" width="800" height="600">
+    <img src="https://cdn.example/photos/other.jpg?v=2" alt="Other" width="800" height="600">
+    <p>Between the repeated photo and the next one.</p>
+    <img src="https://cdn.example/photos/other.jpg?v=1" alt="Other again" width="800" height="600">
+  `);
+
+  assert.deepEqual(srcs, [
+    'https://lh3.googleusercontent.com/HASH=w1600-h1200',
+    'https://cdn.example/photos/pier-1200x800.jpg?width=1200&height=800',
+    'https://cdn.example/photos/other.jpg?v=1',
+    'https://cdn.example/photos/other.jpg?v=2',
+    'https://cdn.example/photos/other.jpg?v=1',
+  ]);
+});
+
+test('saved articles render one figure when local copies share alt and dimensions', () => {
+  const saved = `
+    <figure><img src="digest-image:1.jpg" alt="Earn more" width="800" height="450"></figure>
+    <figure><img src="digest-image:2.jpg" alt="Earn more" width="800" height="450"></figure>
+    <p>The oak counter stays open for neighbors on Saturday morning.</p>
+    <figure><img src="digest-image:3.jpg" alt="Other shot" width="800" height="450"></figure>
+    <figure><img src="digest-image:4.jpg" alt="" width="800" height="450"></figure>
+    <figure><img src="digest-image:5.jpg" alt="" width="800" height="450"></figure>
+  `;
+  const blocks = collapseDuplicateFigures(blocksFromHtml(saved, base));
+  assert.deepEqual(figureSrcs(blocksToHtml(blocks)), [
+    'digest-image:1.jpg',
+    'digest-image:3.jpg',
+    'digest-image:4.jpg',
+    'digest-image:5.jpg',
+  ]);
+});
+
+test('extraction keeps a single figure for an admob-style repeated image', () => {
+  const words = `<p>${'Neighbors borrow tools from the oak counter and write each loan in the paper ledger before Saturday morning. '.repeat(4)}</p>`;
+  const article = extractArticle(
+    `<!doctype html><html><head><title>AdMob note</title></head><body><article>
+      ${words}
+      <picture>
+        <source srcset="https://cdn.example/hero.webp" type="image/webp">
+        <img src="https://cdn.example/hero.jpg" alt="Hero" width="800" height="400">
+      </picture>
+      <noscript><img src="https://cdn.example/hero.jpg" alt="Hero" width="800" height="400"></noscript>
+      <img src="https://lh3.googleusercontent.com/HASH=w800-h600" alt="Shot" width="800" height="600">
+      <img src="https://lh3.googleusercontent.com/HASH=w1600-h1200" alt="Shot" width="1600" height="1200">
+      ${words}
+    </article></body></html>`,
+    'https://admob.google.com/home/',
+  );
+  const figures = article.contentHtml.match(/<figure\b/g) ?? [];
+  assert.equal(figures.length, 2);
+  assert.equal((article.contentHtml.match(/hero\.(?:webp|jpg)/g) ?? []).length, 1);
+  assert.match(article.contentHtml, /w1600-h1200/);
+  assert.doesNotMatch(article.contentHtml, /w800-h600/);
 });

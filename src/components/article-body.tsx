@@ -2,7 +2,14 @@ import { Image } from 'expo-image';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { blocksFromHtml, inlinesToText, type BlockNode, type FigureBlock, type InlineNode } from '@/lib/article-html';
+import {
+  blocksFromHtml,
+  collapseDuplicateFigures,
+  inlinesToText,
+  type BlockNode,
+  type FigureBlock,
+  type InlineNode,
+} from '@/lib/article-html';
 import { localImageUri } from '@/lib/article-images';
 import { renderFontRuns, systemFaceOverride, type FontWeight } from '@/theme/font-text';
 import { useAppTheme } from '@/theme/preferences';
@@ -21,7 +28,10 @@ export function ArticleBody({
   baseUrl: string;
   articleId: string;
 }) {
-  const blocks = useMemo(() => (html?.trim() ? blocksFromHtml(html, baseUrl) : []), [baseUrl, html]);
+  const blocks = useMemo(
+    () => (html?.trim() ? collapseDuplicateFigures(blocksFromHtml(html, baseUrl)) : []),
+    [baseUrl, html],
+  );
   if (blocks.length === 0) return <PlainParagraphs text={plain} />;
 
   const leadIndex = blocks.findIndex((block) => block.type === 'paragraph');
