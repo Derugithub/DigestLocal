@@ -1,0 +1,222 @@
+# Generic Android local build for an Expo app with eas.json.
+# Copy this file unchanged into another Expo repository.
+# It runs only from the Actions tab (workflow_dispatch). It does not run on push or pull request.
+# Requires the EXPO_TOKEN repository secret. eas build downloads the Android keystore
+# already stored on the Expo account (remote credentials). It does not use EAS cloud build quota.
+# Profile env from eas.json, including ADS_MODE, is applied by the EAS CLI. Do not set ADS_MODE here.
+
+name: Local Android build
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        required: true
+        type: choice
+        default: preview
+        options:
+          - development
+          - preview
+          - production
+
+jobs:
+  build:
+    name: Build Android locally (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          echo "Disk space before cleanup:"
+          df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/share/boost \
+            /usr/local/.ghcup \
+            /usr/share/swift \
+            /usr/local/julia \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/lib/heroku \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/local/share/vcpkg \
+            /usr/local/lib/android/sdk/system-images
+          sudo apt-get clean
+          docker image prune --all --force >/dev/null 2>&1 || true
+          echo "Disk space after cleanup:"
+          df -h /
+
+      - name: Require EXPO_TOKEN
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPO_TOKEN}" ]; then
+            echo "The EXPO_TOKEN repository secret is not set."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "${SDK}" ]; then
+            echo "Preinstalled Android SDK not found at: ${SDK}" >&2
+            exit 1
+          fi
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "${GITHUB_ENV}"
+          echo "ANDROID_HOME=${SDK}" >> "${GITHUB_ENV}"
+          if [ -d "${SDK}/platform-tools" ]; then
+            echo "${SDK}/platform-tools" >> "${GITHUB_PATH}"
+          fi
+          if [ -d "${SDK}/cmdline-tools/latest/bin" ]; then
+            echo "${SDK}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
+          fi
+          echo "Using Android SDK at ${SDK}"
+          if [ -n "${ANDROID_NDK_HOME:-}" ]; then
+            echo "Using Android NDK at ${ANDROID_NDK_HOME}"
+          elif [ -n "${ANDROID_NDK_ROOT:-}" ]; then
+            echo "Using Android NDK at ${ANDROID_NDK_ROOT}"
+          fi
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          eas-cache: false
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Choose artifact path
+        id: artifact
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+
+          const profileName = process.env.PROFILE;
+          if (!profileName) {
+            console.error('PROFILE is not set');
+            process.exit(1);
+          }
+
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const builds = eas.build ?? {};
+
+          function merge(base, update) {
+            const result = { ...base, ...update };
+            if (base.env && update.env) {
+              result.env = { ...base.env, ...update.env };
+            }
+            for (const key of ['android', 'ios']) {
+              if (base[key] && update[key]) {
+                result[key] = merge(base[key], update[key]);
+              }
+            }
+            return result;
+          }
+
+          function resolveProfile(name, seen) {
+            if (seen.has(name)) {
+              throw new Error(`Cycle in eas.json build profile extends: ${name}`);
+            }
+            const profile = builds[name];
+            if (!profile || typeof profile !== 'object') {
+              const available = Object.keys(builds).join(', ') || '(none)';
+              throw new Error(
+                `Missing build profile "${name}" in eas.json. Available profiles: ${available}`
+              );
+            }
+            const { extends: parent, ...rest } = profile;
+            if (!parent) return rest;
+            const nextSeen = new Set(seen);
+            nextSeen.add(name);
+            return merge(resolveProfile(parent, nextSeen), rest);
+          }
+
+          // Match eas-cli: platform-specific android fields override the shared profile.
+          function androidView(resolved) {
+            const { android = {}, ios, ...base } = resolved;
+            return {
+              ...base,
+              ...android,
+              env: { ...(base.env || {}), ...(android.env || {}) },
+            };
+          }
+
+          // Match eas-cli resolveGradleCommand plus the internal-distribution APK fallback.
+          // gradleCommand wins, then developmentClient (assembleDebug, APK), then buildType.
+          function artifactExtension(profile) {
+            const gradleCommand =
+              typeof profile.gradleCommand === 'string' ? profile.gradleCommand : '';
+            if (gradleCommand) {
+              if (/assemble|package/i.test(gradleCommand)) return 'apk';
+              return 'aab';
+            }
+            if (profile.developmentClient) return 'apk';
+            let buildType = profile.buildType;
+            if (!buildType && profile.distribution === 'internal') buildType = 'apk';
+            if (buildType === 'apk') return 'apk';
+            return 'aab';
+          }
+
+          const profile = androidView(resolveProfile(profileName, new Set()));
+          const extension = artifactExtension(profile);
+          const safeName = profileName.replace(/[^A-Za-z0-9._-]/g, '-');
+          const artifactPath = `./build-output/app-${safeName}.${extension}`;
+          const artifactName = `android-${safeName}-${extension}`;
+
+          fs.mkdirSync('build-output', { recursive: true });
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `path=${artifactPath}\nextension=${extension}\nartifact_name=${artifactName}\n`
+          );
+          console.log(`Android artifact: ${artifactPath}`);
+          NODE
+
+      - name: Build Android locally
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform android --profile "${{ inputs.profile }}" --local --non-interactive --output "${{ steps.artifact.outputs.path }}"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.artifact_name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
