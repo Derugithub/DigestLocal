@@ -2,7 +2,7 @@ import type { AdConfig } from '@/lib/ads/ad-config';
 import type { AdState, DayCount } from '@/lib/ads/ad-state';
 
 export type InterstitialTrigger = 'save' | 'back';
-export type RewardedKind = 'ad_free' | 'quiz_unlock';
+export type RewardedKind = 'ad_free' | 'quiz_unlock' | 'extra_speeds';
 
 export type PolicyInput = {
   now: number;
@@ -98,10 +98,7 @@ function fullscreenBlockReason(input: PolicyInput): string | null {
   if (state.savedCount < config.minSavedForInterstitial) {
     return `saved ${state.savedCount} is below ${config.minSavedForInterstitial}`;
   }
-  const elapsedSec = (now - state.sessionStartedAt) / 1000;
-  if (elapsedSec < config.minSecondsIntoSessionForInterstitial) {
-    return `${Math.max(0, Math.floor(elapsedSec))}s into session, need ${config.minSecondsIntoSessionForInterstitial}s`;
-  }
+  // No session-age gate. Session 1 never reaches this check (`minSessionForAds` / interstitial session).
   if (state.lastFullscreenAt != null && now - state.lastFullscreenAt < config.fullscreenCooldownSec * 1000) {
     return `fullscreen cooldown (${config.fullscreenCooldownSec}s)`;
   }
@@ -140,10 +137,15 @@ export function canShowInterstitial(trigger: InterstitialTrigger, input: PolicyI
   return interstitialBlockReason(trigger, input) == null;
 }
 
+/** Saves before the interstitial session do not move the every-Nth counter. */
+export function nextSaveInterstitialCounter(state: AdState, config: AdConfig): number {
+  if (state.sessionCount < config.minSessionForInterstitial) return state.saveInterstitialCounter;
+  return state.saveInterstitialCounter + 1;
+}
+
 /**
  * Stable gates for preloading a save interstitial.
- * Ignores the Nth-save modulo, the 90s session timer, and short cooldowns,
- * because those can become true before the user taps Keep.
+ * Ignores the Nth-save modulo and short cooldowns, because those can become true before the user taps Keep.
  */
 export function canPreloadInterstitial(trigger: InterstitialTrigger, input: PolicyInput): boolean {
   if (trigger !== 'save') return false;
@@ -157,13 +159,14 @@ export function canPreloadInterstitial(trigger: InterstitialTrigger, input: Poli
   return true;
 }
 
-function rewardedWindowReason(input: PolicyInput): string | null {
+function rewardedWindowReason(kind: RewardedKind, input: PolicyInput): string | null {
   if (input.isPro) return 'Pro';
   if (input.platform === 'web') return 'web';
   if (!input.config.adsEnabled) return 'ads disabled';
   if (input.ready === false) return 'sdk not ready';
   if (input.canRequestAds === false) return 'consent does not allow ad requests';
-  if (input.suppressed) return 'suppressed';
+  // The faster-speed offer lives in the Listen control, which is itself a suppression reason.
+  if (input.suppressed && kind !== 'extra_speeds') return 'suppressed';
   if (input.state.sessionCount < input.config.minSessionForAds) {
     return `session ${input.state.sessionCount} is below ${input.config.minSessionForAds}`;
   }
@@ -183,12 +186,20 @@ function adFreeGrantBlocked(state: AdState, config: AdConfig, now: number): bool
   return now < grantedAt + 24 * 60 * 60 * 1000;
 }
 
+export function extraSpeedsActive(state: AdState, now: number): boolean {
+  return state.extraSpeedsUntil != null && state.extraSpeedsUntil > now;
+}
+
 /** Why a rewarded offer must not be made, or null when the caps allow it. */
 export function rewardedBlockReason(kind: RewardedKind, input: PolicyInput): string | null {
-  const windowReason = rewardedWindowReason(input);
+  const windowReason = rewardedWindowReason(kind, input);
   if (windowReason) return windowReason;
   if (kind === 'ad_free') {
     if (adFreeGrantBlocked(input.state, input.config, input.now)) return 'ad-free pass already used in the last 24h';
+    return null;
+  }
+  if (kind === 'extra_speeds') {
+    if (extraSpeedsActive(input.state, input.now)) return 'extra speeds already unlocked';
     return null;
   }
   if (isAdFree(input.state, input.now)) return 'ad-free pass';
@@ -230,9 +241,8 @@ export function nextSessionState(state: AdState, event: SessionEvent, config: Ad
         lastBackgroundAt: null,
       };
     }
-    // No recorded departure means the process died while the app was active.
-    // That is the same session, not a 30 minute background.
-    if (state.lastBackgroundAt == null || now - state.lastBackgroundAt < gapMs) return state;
+    // Every later cold start is a new session, even if the process died in the
+    // foreground or the background gap has not elapsed. The gap is only for warm resumes.
     return {
       ...state,
       sessionCount: state.sessionCount + 1,

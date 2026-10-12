@@ -1,15 +1,17 @@
 /**
  * Central ad caps. Remote overrides can only make these stricter or equal,
- * and unimplemented formats stay off. See docs/monetization/ad-placements.md.
+ * except the warm-resume gap, which can move inside its sane range.
+ * Unimplemented formats stay off. See docs/monetization/ad-placements.md.
  */
 export const AD_DEFAULTS = {
   adsEnabled: true,
   requestNonPersonalizedAdsOnly: true,
-  sessionGapMinutes: 30,
+  sessionGapMinutes: 30, // warm resume only; every cold start is already a new session
   minSessionForAds: 2,
   minSavedForAds: 1,
   minSessionForInterstitial: 3,
   minSavedForInterstitial: 3,
+  /** Not enforced. Session 1 is the only protected session, so there is no session-age gate. */
   minSecondsIntoSessionForInterstitial: 90,
   interstitialEveryNSaves: 3,
   fullscreenCooldownSec: 240,
@@ -18,7 +20,9 @@ export const AD_DEFAULTS = {
   rewardedDailyCap: 6,
   adFreePassHours: 24,
   adFreePassPerDay: 1,
-  quizFreeQuestionCap: 5,
+  /** Most articles produce 5 or fewer questions, so 5 never showed the unlock. */
+  quizFreeQuestionCap: 3,
+  extraSpeedsHours: 24,
   quizUnlockPerDay: 3,
   shelfBannerEnabled: true,
   articleEndBannerEnabled: true,
@@ -47,6 +51,7 @@ export type AdConfig = {
   adFreePassHours: number;
   adFreePassPerDay: number;
   quizFreeQuestionCap: number;
+  extraSpeedsHours: number;
   quizUnlockPerDay: number;
   shelfBannerEnabled: boolean;
   articleEndBannerEnabled: boolean;
@@ -104,16 +109,18 @@ type NumericKey =
   | 'adFreePassHours'
   | 'adFreePassPerDay'
   | 'quizFreeQuestionCap'
+  | 'extraSpeedsHours'
   | 'quizUnlockPerDay';
 
 const NUMERIC_RULES: {
   key: NumericKey;
   /** Higher means fewer or later ads, except where noted. */
-  stricter: 'higher' | 'lower';
+  stricter: 'higher' | 'lower' | 'range';
   min: number;
   max: number;
 }[] = [
-  { key: 'sessionGapMinutes', stricter: 'higher', min: 30, max: 24 * 60 },
+  // Warm-resume gap. Remote config may set this below the 30 minute default.
+  { key: 'sessionGapMinutes', stricter: 'range', min: 1, max: 24 * 60 },
   { key: 'minSessionForAds', stricter: 'higher', min: 2, max: 30 },
   { key: 'minSavedForAds', stricter: 'higher', min: 1, max: 100 },
   { key: 'minSessionForInterstitial', stricter: 'higher', min: 3, max: 30 },
@@ -126,7 +133,8 @@ const NUMERIC_RULES: {
   { key: 'rewardedDailyCap', stricter: 'lower', min: 0, max: 6 },
   { key: 'adFreePassHours', stricter: 'lower', min: 1, max: 24 },
   { key: 'adFreePassPerDay', stricter: 'lower', min: 0, max: 1 },
-  { key: 'quizFreeQuestionCap', stricter: 'lower', min: 1, max: 5 },
+  { key: 'quizFreeQuestionCap', stricter: 'lower', min: 1, max: 3 },
+  { key: 'extraSpeedsHours', stricter: 'lower', min: 1, max: 24 },
   { key: 'quizUnlockPerDay', stricter: 'lower', min: 0, max: 3 },
 ];
 
@@ -150,6 +158,10 @@ export function clampRemoteOverride(input: unknown, defaults: AdConfig = adConfi
   for (const rule of NUMERIC_RULES) {
     const raw = source[rule.key];
     if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+    if (rule.stricter === 'range') {
+      next[rule.key] = clamp(Math.round(raw), rule.min, rule.max);
+      continue;
+    }
     const rounded = rule.stricter === 'higher' ? Math.ceil(raw) : Math.floor(raw);
     const baseline = defaults[rule.key];
     const stricterValue = rule.stricter === 'higher' ? Math.max(rounded, baseline) : Math.min(rounded, baseline);

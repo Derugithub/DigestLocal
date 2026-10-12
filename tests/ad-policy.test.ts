@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { AD_DEFAULTS, adRequestOptions, clampRemoteOverride, type AdConfig } from '../src/lib/ads/ad-config.ts';
@@ -11,6 +13,7 @@ import {
   fullscreenReloadDelayMs,
   interstitialBlockReason,
   localDateKey,
+  nextSaveInterstitialCounter,
   nextSessionState,
   rewardedBlockReason,
   type PolicyInput,
@@ -19,8 +22,13 @@ import { emptyAdState, type AdState } from '../src/lib/ads/ad-state.ts';
 import { getUnitId, GOOGLE_TEST_UNIT_IDS, resetUnitIdWarnings } from '../src/lib/ads/ad-units.ts';
 import {
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
+  applyRootMobileAdsAppIds,
   GOOGLE_SAMPLE_ANDROID_APP_ID,
+  GOOGLE_SAMPLE_IOS_APP_ID,
   resolveAndroidAppId,
+  resolveIosAppId,
+  resolveMobileAdsAppIds,
+  syncRootMobileAdsAppIds,
 } from '../src/lib/ads/android-app-id.js';
 
 const NOW = Date.parse('2026-06-15T15:00:00');
@@ -69,12 +77,13 @@ test('Pro blocks init, banners, interstitials, and rewarded offers', () => {
   assert.equal(canShowInterstitial('save', pro), false);
   assert.equal(canOfferRewarded('ad_free', pro), false);
   assert.equal(canOfferRewarded('quiz_unlock', pro), false);
+  assert.equal(canOfferRewarded('extra_speeds', pro), false);
 });
 
 test('interstitial fires on the 3rd and 6th save only, and respects every other cap', () => {
   assert.equal(canShowInterstitial('save', input({}, { sessionCount: 2 })), false);
   assert.equal(canShowInterstitial('save', input({}, { savedCount: 2 })), false);
-  assert.equal(canShowInterstitial('save', input({}, { sessionStartedAt: NOW - 30_000 })), false);
+  assert.equal(canShowInterstitial('save', input({}, { sessionStartedAt: NOW - 30_000 })), true);
 
   for (const count of [1, 2, 4, 5]) {
     assert.equal(canShowInterstitial('save', input({}, { saveInterstitialCounter: count })), false, `save ${count}`);
@@ -128,6 +137,16 @@ test('rewarded caps: one ad-free pass per 24 hours, three quiz unlocks a day, si
   const underDaily = input({}, { rewardedToday: { date: localDateKey(NOW), count: 5 } });
   assert.equal(canOfferRewarded('ad_free', underDaily), true);
   assert.equal(canOfferRewarded('quiz_unlock', underDaily), true);
+  assert.equal(canOfferRewarded('extra_speeds', underDaily), true);
+
+  assert.equal(canOfferRewarded('extra_speeds', fresh), true);
+  assert.equal(canOfferRewarded('extra_speeds', duringPass), true);
+  assert.equal(canOfferRewarded('extra_speeds', input({ suppressed: true })), true);
+  assert.equal(canOfferRewarded('quiz_unlock', input({ suppressed: true })), false);
+  const speedsOn = input({}, { extraSpeedsUntil: NOW + 60 * 60 * 1000 });
+  assert.equal(canOfferRewarded('extra_speeds', speedsOn), false);
+  assert.equal(canOfferRewarded('extra_speeds', input({}, { extraSpeedsUntil: NOW - 1000 })), true);
+  assert.equal(canOfferRewarded('extra_speeds', daily), false);
 });
 
 test('remote overrides only get stricter, and unimplemented formats stay off', () => {
@@ -227,14 +246,77 @@ test('Android app id falls back to the sample outside production and throws in p
     () => resolveAndroidAppId({ profile: 'production', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
     /real AdMob Android app ID/,
   );
+  assert.equal(
+    resolveAndroidAppId({ profile: 'production', adsMode: 'test', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
+    GOOGLE_SAMPLE_ANDROID_APP_ID,
+  );
+  assert.throws(
+    () => resolveAndroidAppId({ profile: 'preview', adsMode: 'live', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
+    /real AdMob Android app ID/,
+  );
 });
 
-test('a cold start is session 1, and 30 minutes in the background starts the next session', () => {
+test('non-live builds replace the root AdMob app ids and live builds still reject placeholders', () => {
+  assert.equal(
+    resolveIosAppId({ profile: 'preview', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
+    GOOGLE_SAMPLE_IOS_APP_ID,
+  );
+  assert.equal(
+    resolveIosAppId({ profile: 'production', fromConfig: GOOGLE_SAMPLE_IOS_APP_ID }),
+    GOOGLE_SAMPLE_IOS_APP_ID,
+  );
+  assert.throws(
+    () => resolveIosAppId({ profile: 'production', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
+    /real AdMob iOS app ID/,
+  );
+
+  const ids = resolveMobileAdsAppIds({
+    profile: 'preview',
+    adsMode: 'test',
+    androidFromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER,
+    iosFromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER,
+  });
+  assert.deepEqual(ids, {
+    androidAppId: GOOGLE_SAMPLE_ANDROID_APP_ID,
+    iosAppId: GOOGLE_SAMPLE_IOS_APP_ID,
+  });
+  const rewritten = applyRootMobileAdsAppIds(readFileSync('app.json', 'utf8'), ids);
+  assert.match(rewritten, new RegExp(`"android_app_id": "${GOOGLE_SAMPLE_ANDROID_APP_ID}"`));
+  assert.match(rewritten, new RegExp(`"ios_app_id": "${GOOGLE_SAMPLE_IOS_APP_ID}"`));
+  assert.match(rewritten, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'digestlocal-ads-'));
+  const file = path.join(dir, 'app.json');
+  writeFileSync(file, readFileSync('app.json', 'utf8'));
+  assert.equal(syncRootMobileAdsAppIds(ids, { env: {}, argv: ['node', 'expo', 'start'], file }), false);
+  assert.match(readFileSync(file, 'utf8'), /"android_app_id": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.equal(syncRootMobileAdsAppIds(ids, { env: { EAS_BUILD: 'true' }, argv: ['node'], file }), true);
+  const written = readFileSync(file, 'utf8');
+  assert.match(written, new RegExp(`"android_app_id": "${GOOGLE_SAMPLE_ANDROID_APP_ID}"`));
+  assert.match(written, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.equal(syncRootMobileAdsAppIds(ids, { env: { EAS_BUILD: 'true' }, argv: ['node'], file }), false);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('every cold start is a new session', () => {
   const config = { ...AD_DEFAULTS };
   const first = nextSessionState(emptyAdState(NOW), { type: 'launch' }, config, NOW);
   assert.equal(first.sessionCount, 1);
   assert.equal(first.firstOpenAt, NOW);
 
+  const killedWhileActive = nextSessionState(first, { type: 'launch' }, config, NOW + 5_000);
+  assert.equal(killedWhileActive.sessionCount, 2);
+  assert.equal(killedWhileActive.sessionStartedAt, NOW + 5_000);
+
+  const left = nextSessionState(killedWhileActive, { type: 'background' }, config, NOW + 60_000);
+  const briefColdStart = nextSessionState(left, { type: 'launch' }, config, NOW + 61_000);
+  assert.equal(briefColdStart.sessionCount, 3);
+  assert.equal(briefColdStart.lastBackgroundAt, null);
+});
+
+test('a warm resume keeps the session until the background gap', () => {
+  const config = { ...AD_DEFAULTS };
+  const first = nextSessionState(emptyAdState(NOW), { type: 'launch' }, config, NOW);
   const backgrounded = nextSessionState(first, { type: 'background' }, config, NOW + 60_000);
   const soon = nextSessionState(backgrounded, { type: 'active' }, config, NOW + 60_000 + 29 * 60 * 1000);
   assert.equal(soon.sessionCount, 1);
@@ -243,36 +325,30 @@ test('a cold start is session 1, and 30 minutes in the background starts the nex
   const later = nextSessionState(backgrounded, { type: 'active' }, config, NOW + 60_000 + 30 * 60 * 1000);
   assert.equal(later.sessionCount, 2);
   assert.equal(later.sessionStartedAt, NOW + 60_000 + 30 * 60 * 1000);
-});
 
-test('session count persists across a cold start only after a recorded 30 minute background', () => {
-  const config = { ...AD_DEFAULTS };
-  const first = nextSessionState(emptyAdState(NOW), { type: 'launch' }, config, NOW);
-
-  const killedWhileActive = nextSessionState(first, { type: 'launch' }, config, NOW + 5 * 60 * 1000);
-  assert.equal(killedWhileActive.sessionCount, 1);
-  assert.equal(killedWhileActive.sessionStartedAt, first.sessionStartedAt);
-
-  const left = nextSessionState(first, { type: 'background' }, config, NOW + 60_000);
-  const briefColdStart = nextSessionState(left, { type: 'launch' }, config, NOW + 60_000 + 10 * 60 * 1000);
-  assert.equal(briefColdStart.sessionCount, 1);
-
-  const longColdStart = nextSessionState(left, { type: 'launch' }, config, NOW + 60_000 + 30 * 60 * 1000);
-  assert.equal(longColdStart.sessionCount, 2);
-  assert.equal(longColdStart.lastBackgroundAt, null);
-
-  const secondBackground = nextSessionState(left, { type: 'background' }, config, NOW + 60_000 + 30 * 60 * 1000);
-  assert.equal(secondBackground.lastBackgroundAt, left.lastBackgroundAt);
+  const secondBackground = nextSessionState(backgrounded, { type: 'background' }, config, NOW + 60_000 + 30 * 60 * 1000);
+  assert.equal(secondBackground.lastBackgroundAt, backgrounded.lastBackgroundAt);
   const resume = nextSessionState(secondBackground, { type: 'active' }, config, NOW + 60_000 + 30 * 60 * 1000);
   assert.equal(resume.sessionCount, 2);
 });
 
+test('remote config can set the warm-resume gap below 30 minutes', () => {
+  const shortened = clampRemoteOverride({ sessionGapMinutes: 10 });
+  assert.equal(shortened.sessionGapMinutes, 10);
+  assert.equal(clampRemoteOverride({ sessionGapMinutes: 0 }).sessionGapMinutes, 1);
+  assert.equal(clampRemoteOverride({ sessionGapMinutes: 24 * 60 + 5 }).sessionGapMinutes, 24 * 60);
+
+  const first = nextSessionState(emptyAdState(NOW), { type: 'launch' }, shortened, NOW);
+  const backgrounded = nextSessionState(first, { type: 'background' }, shortened, NOW + 1_000);
+  const early = nextSessionState(backgrounded, { type: 'active' }, shortened, NOW + 1_000 + 9 * 60 * 1000);
+  assert.equal(early.sessionCount, 1);
+  const after = nextSessionState(backgrounded, { type: 'active' }, shortened, NOW + 1_000 + 10 * 60 * 1000);
+  assert.equal(after.sessionCount, 2);
+});
+
 test('interstitial and rewarded block reasons name the cap that failed', () => {
   assert.equal(interstitialBlockReason('save', input({}, { sessionCount: 2 })), 'session 2 is below 3');
-  assert.equal(
-    interstitialBlockReason('save', input({}, { sessionStartedAt: NOW - 30_000 })),
-    '30s into session, need 90s',
-  );
+  assert.equal(interstitialBlockReason('save', input({}, { sessionStartedAt: NOW - 30_000 })), null);
   assert.equal(interstitialBlockReason('save', input({}, { saveInterstitialCounter: 4 })), 'save 4 is not a multiple of 3');
   assert.equal(interstitialBlockReason('save', input()), null);
   assert.equal(interstitialBlockReason('save', input({ fromShare: true })), 'opened from a share');
@@ -283,6 +359,17 @@ test('interstitial and rewarded block reasons name the cap that failed', () => {
   );
   assert.equal(rewardedBlockReason('ad_free', input({}, { adFreeUntil: NOW + 60_000 })), 'ad-free pass already used in the last 24h');
   assert.equal(rewardedBlockReason('quiz_unlock', input()), null);
+  assert.equal(
+    rewardedBlockReason('extra_speeds', input({}, { extraSpeedsUntil: NOW + 60_000 })),
+    'extra speeds already unlocked',
+  );
+});
+
+test('the save interstitial counter ignores saves before session 3', () => {
+  const config = { ...AD_DEFAULTS };
+  assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 1, saveInterstitialCounter: 4 }), config), 4);
+  assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 2, saveInterstitialCounter: 0 }), config), 0);
+  assert.equal(nextSaveInterstitialCounter(state({ sessionCount: 3, saveInterstitialCounter: 2 }), config), 3);
 });
 
 test('fullscreen reload backs off and then caps', () => {

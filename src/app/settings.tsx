@@ -229,6 +229,26 @@ export default function SettingsScreen() {
   );
 }
 
+function initStatusLabel(status: AdsContextValue['initStatus']): string {
+  if (status === 'retry-on-foreground') return 'retries when the app returns to the foreground';
+  if (status === 'ready') return 'ready';
+  if (status === 'running') return 'starting';
+  return 'not started';
+}
+
+function extraSpeedsLabel(ads: AdsContextValue): string {
+  if (ads.isPro) return 'included with Pro';
+  if (ads.extraSpeedsUntil != null && ads.extraSpeedsUntil > Date.now()) {
+    return `unlocked until ${new Date(ads.extraSpeedsUntil).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })}`;
+  }
+  return 'locked (1.5× and 2×)';
+}
+
 function adsStatusText(ads: AdsContextValue, now: number): string {
   const seconds =
     ads.sessionStartedAt == null ? 0 : Math.max(0, Math.floor((now - ads.sessionStartedAt) / 1000));
@@ -243,14 +263,16 @@ function adsStatusText(ads: AdsContextValue, now: number): string {
         });
   const units = AD_PLACEMENTS.map((placement) => `${placement}: ${ads.unitId(placement) ?? 'off'}`).join('\n');
   return [
-    `Initialized: ${ads.ready ? 'yes' : 'no'}`,
+    `Initialized: ${ads.ready ? 'yes' : 'no'} (${initStatusLabel(ads.initStatus)})`,
     `Consent: ${ads.consentStatus} (canRequestAds: ${ads.canRequestAds ? 'yes' : 'no'})`,
-    `Session: ${ads.sessionCount} · ${seconds}s into session (interstitial needs 90s)`,
-    `Save counter: ${ads.saveInterstitialCounter}`,
+    `Session: ${ads.sessionCount} · ${seconds}s into this session (each cold start is a new session)`,
+    `Save counter: ${ads.saveInterstitialCounter} (counts saves from session ${ads.config.minSessionForInterstitial})`,
     `Last interstitial: ${lastInterstitial}`,
     `Today's interstitials: ${ads.fullscreenTodayCount}`,
     `Interstitial load: ${ads.interstitialLoadState}`,
     `Rewarded load: ${ads.rewardedLoadState}`,
+    `Quiz free questions: ${ads.config.quizFreeQuestionCap}`,
+    `Extra speeds: ${extraSpeedsLabel(ads)}`,
     `Last ad error: ${ads.lastLoadError ?? 'none'}`,
     `Last decision: ${ads.lastDecision}`,
     'Unit IDs:',

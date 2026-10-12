@@ -1,6 +1,6 @@
 # Ad placements and caps
 
-Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `remoteConfigUrl` is set, may only make caps stricter or equal. Back-nav, app open, native, and collapsible stay off because they are not implemented.
+Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `remoteConfigUrl` is set, may only make caps stricter or equal, except `sessionGapMinutes`, which can be set from 1 minute to 24 hours. Back-nav, app open, native, and collapsible stay off because they are not implemented.
 
 ## Defaults
 
@@ -13,7 +13,7 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 | minSavedForAds | 1 |
 | minSessionForInterstitial | 3 |
 | minSavedForInterstitial | 3 |
-| minSecondsIntoSessionForInterstitial | 90 |
+| minSecondsIntoSessionForInterstitial | 90, not enforced |
 | interstitialEveryNSaves | 3 |
 | fullscreenCooldownSec | 240 |
 | fullscreenDailyCap | 3 |
@@ -21,7 +21,8 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 | rewardedDailyCap | 6 |
 | adFreePassHours | 24 |
 | adFreePassPerDay | 1 |
-| quizFreeQuestionCap | 5 |
+| quizFreeQuestionCap | 3 |
+| extraSpeedsHours | 24 |
 | quizUnlockPerDay | 3 |
 | shelfBannerEnabled | true |
 | articleEndBannerEnabled | true |
@@ -32,7 +33,7 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 | paywallEnabled | false |
 | remoteConfigUrl | empty |
 
-Session 1 does not gather consent, initialize the Mobile Ads SDK, or show ads. A new session starts on a cold start after at least 30 minutes away, or when the app returns to the foreground after at least 30 minutes in the background.
+Session 1 does not gather consent, initialize the Mobile Ads SDK, or show ads. Every cold start counts as a new session. A warm resume, when the process stayed alive, starts a new session only after `sessionGapMinutes` in the background (default 30). Remote config may set that gap as low as 1 minute.
 
 Every ad request sets `requestNonPersonalizedAdsOnly` and nothing else. Article text, saved links, and quiz results are not attached.
 
@@ -57,14 +58,14 @@ While any reason is active, banners unmount and interstitials do not show.
 | --- | --- | --- | --- | --- |
 | shelf_banner | Shelf, bottom, outside the list, inside the bottom safe area | Large anchored adaptive banner (`BannerAdSize.LARGE_ANCHORED_ADAPTIVE_BANNER` in react-native-google-mobile-ads 17.2; `ANCHORED_ADAPTIVE_BANNER` is deprecated) | Shelf has at least one article. Hidden while search has no hits or the keyboard is open. 16 dp above the banner. Labelled Advertisement, with a divider. | On from session 2 |
 | article_end_banner | Article, Read mode, after the last paragraph | Inline adaptive banner, width of the article column, max height 250 | Mounts when the reader is within one viewport of the end and the article is at least two viewports tall. 24 dp below the banner, above the mode bar's clearance. Not shown in Listen or Study. | On from session 2 |
-| save_interstitial | After a successful Keep on this device | Interstitial | Every 3rd successful save, plus the full-screen caps below. Never from a share intent. Never on Discard. Shown only if already loaded. | On from session 3 |
-| study_rewarded | Study score screen, and Settings | Rewarded | Opt-in. Unlocks the rest of that article's quiz, or a 24 hour ad-free pass. | On from session 2 |
+| save_interstitial | After a successful Keep on this device | Interstitial | Every 3rd save made in session 3 or later, plus the full-screen caps below. Saves in sessions 1 and 2 do not move the counter. Never from a share intent. Never on Discard. Preloaded once the SDK is ready, and shown only if already loaded. | On from session 3 |
+| study_rewarded | Study quiz, Listen speed, and Settings | Rewarded | Opt-in. Unlocks the rest of a capped quiz (free cap is 3 questions), 1.5× and 2× listening speeds for 24 hours, or a 24 hour ad-free pass. 0.9× to 1.3× stay free. Preloaded once the SDK is ready. | On from session 2 |
 | Back navigation | Article back button | — | Not implemented. `backNavInterstitialEnabled` stays false. | Off |
 | App open, native, collapsible | — | — | Not implemented. Flags stay off. | Off |
 
 ## Full-screen caps
 
-An interstitial also requires session count at least 3, at least 3 saved articles, at least 90 seconds into the session, at least 240 seconds since the previous full-screen ad, fewer than 3 full-screen ads on the local day, and at least 60 seconds since a rewarded ad closed.
+An interstitial also requires session count at least 3, at least 3 saved articles, at least 240 seconds since the previous full-screen ad, fewer than 3 full-screen ads on the local day, and at least 60 seconds since a rewarded ad closed. There is no minimum time into the session. If the Mobile Ads SDK cannot request ads, or init fails five times, the next try waits until the app returns to the foreground. A banner that fails to load retries with backoff instead of staying hidden.
 
 Rewarded shows count toward 6 per local day. Quiz unlocks are also capped at 3 per day. The ad-free pass is once per 24 hours.
 

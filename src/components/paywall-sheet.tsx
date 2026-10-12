@@ -12,7 +12,7 @@ const BULLETS = [
 
 /**
  * Variant A from the monetization plan. Shown only when paywallEnabled and billing is available.
- * Fresh question sets and extra speeds are listed as planned; they are not sold in this build.
+ * Extra speeds can also be unlocked for 24 hours with a rewarded ad. They are not sold in this build.
  */
 export function PaywallSheet({
   visible,

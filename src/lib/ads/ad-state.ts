@@ -13,6 +13,8 @@ export type AdState = {
   quizUnlocksToday: DayCount;
   lastRewardedClosedAt: number | null;
   adFreeUntil: number | null;
+  /** Faster TTS speeds (1.5× and 2×) stay unlocked until this time. */
+  extraSpeedsUntil: number | null;
   quizUnlocks: string[];
 };
 
@@ -33,6 +35,7 @@ export function emptyAdState(now = 0): AdState {
     quizUnlocksToday: { date: '', count: 0 },
     lastRewardedClosedAt: null,
     adFreeUntil: null,
+    extraSpeedsUntil: null,
     quizUnlocks: [],
   };
 }
@@ -63,6 +66,7 @@ export function sanitizeAdState(value: unknown, now = Date.now()): AdState {
     quizUnlocksToday: isDayCount(raw.quizUnlocksToday) ? raw.quizUnlocksToday : base.quizUnlocksToday,
     lastRewardedClosedAt: typeof raw.lastRewardedClosedAt === 'number' ? raw.lastRewardedClosedAt : null,
     adFreeUntil: typeof raw.adFreeUntil === 'number' ? raw.adFreeUntil : null,
+    extraSpeedsUntil: typeof raw.extraSpeedsUntil === 'number' ? raw.extraSpeedsUntil : null,
     quizUnlocks: Array.isArray(raw.quizUnlocks) ? raw.quizUnlocks.filter((id) => typeof id === 'string') : [],
   };
 }
@@ -92,8 +96,8 @@ export async function saveAdState(state: AdState): Promise<void> {
 
 /**
  * Flush counters before Android freezes the process on background.
- * The async write often does not finish, so a 30 minute gap was lost and the
- * next cold start stayed on session 1.
+ * A cold start is its own session. This write keeps the warm-resume clock
+ * and the other counters when the process is only backgrounded.
  */
 export function saveAdStateSync(state: AdState): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
