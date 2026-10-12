@@ -162,6 +162,20 @@ The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` 
 
 Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode. Those colors, and the share target, are native configuration. They show up on the next EAS or development build. Search is JavaScript and does not add a native module. Article images add `expo-file-system`. `expo-image` was already a dependency and has to be in the binary to draw the files. A build from before those modules were linked cannot store or show images. The save flow still keeps the text if file storage throws.
 
+## Local Android build
+
+`.github/workflows/local-build.yml` builds Android on the GitHub-hosted Ubuntu runner with `eas build --local`. The build runs on that runner, so it leaves the Expo account's EAS cloud build quota unused. The workflow runs only when someone starts it from the Actions tab.
+
+1. Open the **Actions** tab.
+2. Choose **Local Android build**.
+3. Choose **Run workflow**.
+4. Select a profile: `development`, `preview`, or `production`. The default is `preview`.
+5. When the run succeeds, open the run and download the file under **Artifacts**.
+
+The workflow reads `eas.json` and writes `./build-output/app-<profile>.apk`, or `.aab` when that profile builds an Android App Bundle. In this repository, `development` and `preview` are APKs. `production` is an AAB.
+
+It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downloads the Android keystore from the Expo account with that token. The selected profile's `env` in `eas.json`, including `ADS_MODE`, is applied by the EAS CLI. A production run still stops while the AdMob Android app ID in `app.json` is a placeholder, unless `ADMOB_ANDROID_APP_ID` is set.
+
 ## Project structure
 
 ```text
@@ -172,7 +186,7 @@ src/theme/          Light and dark palettes
 docs/monetization/  Ad placement notes, Data safety notes, and the app-ads.txt template
 tests/              Extraction, URL, study, and ad-policy tests
 eas.json            EAS build profiles
-.github/workflows/  Manual Android EAS build
+.github/workflows/  Manual Android EAS builds (cloud and local)
 ```
 
 ## License
