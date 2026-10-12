@@ -321,6 +321,148 @@ function figureFromMedia(element: Element, baseUrl: string): FigureBlock | null 
   return resolved ? { type: 'figure', ...resolved, caption: [] } : null;
 }
 
+const SIZE_QUERY_KEYS = new Set(['w', 'width', 'h', 'height', 's', 'size']);
+
+/** Identity for "same picture", ignoring size variants and format fallbacks. */
+function imageAssetKey(src: string): string {
+  if (src.startsWith(DIGEST_IMAGE_PREFIX)) return src;
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return src;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return src;
+  let path = url.pathname.replace(/=(?:w|s)\d+[^/]*$/i, '');
+  path = path.replace(/@\d+x(?=\.[a-z0-9]+$)/i, '');
+  path = path.replace(/[-_]\d{2,5}x\d{2,5}(?=\.[a-z0-9]+$)/i, '');
+  path = path.replace(/\.(?:jpe?g|png|webp|gif|avif|bmp)$/i, '');
+  const params = [...url.searchParams.entries()]
+    .filter(([key]) => !SIZE_QUERY_KEYS.has(key.toLowerCase()))
+    .sort((left, right) => left[0].localeCompare(right[0]) || left[1].localeCompare(right[1]));
+  const search = params.length > 0 ? `?${params.map(([key, value]) => `${key}=${value}`).join('&')}` : '';
+  return `${url.protocol}//${url.host.toLowerCase()}${path}${search}`;
+}
+
+function declaredSize(src: string): number {
+  const google = /=w(\d+)(?:-h(\d+))?/i.exec(src);
+  if (google?.[1]) return Number(google[1]) * Number(google[2] ?? google[1]);
+  const dims = /[-_](\d{2,5})x(\d{2,5})/i.exec(src);
+  if (dims?.[1] && dims[2]) return Number(dims[1]) * Number(dims[2]);
+  try {
+    const url = new URL(src);
+    const width = Number(url.searchParams.get('w') ?? url.searchParams.get('width') ?? '');
+    const height = Number(url.searchParams.get('h') ?? url.searchParams.get('height') ?? '');
+    if (width > 0 && height > 0) return width * height;
+    if (width > 0) return width;
+  } catch {
+    return 0;
+  }
+  return 0;
+}
+
+function figureScore(block: FigureBlock): number {
+  const area = (block.width ?? 0) * (block.height ?? 0);
+  return area > 0 ? area : declaredSize(block.src);
+}
+
+function preferFigure(current: FigureBlock, incoming: FigureBlock): FigureBlock {
+  const winner = figureScore(incoming) > figureScore(current) ? incoming : current;
+  const other = winner === current ? incoming : current;
+  return {
+    ...winner,
+    caption: winner.caption.length > 0 ? winner.caption : other.caption,
+  };
+}
+
+function isDuplicateFigure(current: FigureBlock, incoming: FigureBlock): boolean {
+  if (imageAssetKey(current.src) === imageAssetKey(incoming.src)) return true;
+  // Already-saved copies keep digest-image file names, so the remote size
+  // variant is gone. Same alt and dimensions are the remaining pair signal.
+  const bothLocal = current.src.startsWith(DIGEST_IMAGE_PREFIX) && incoming.src.startsWith(DIGEST_IMAGE_PREFIX);
+  return (
+    bothLocal &&
+    current.alt.length > 0 &&
+    current.alt === incoming.alt &&
+    current.width != null &&
+    incoming.width != null &&
+    current.height != null &&
+    incoming.height != null &&
+    current.width === incoming.width &&
+    current.height === incoming.height
+  );
+}
+
+export function collapseDuplicateFigures(blocks: BlockNode[]): BlockNode[] {
+  const collapsed: BlockNode[] = [];
+  for (const block of blocks) {
+    if (block.type === 'list') {
+      collapsed.push({
+        ...block,
+        items: block.items.map((item) => ({ blocks: collapseDuplicateFigures(item.blocks) })),
+      });
+      continue;
+    }
+    if (block.type === 'quote') {
+      collapsed.push({ type: 'quote', blocks: collapseDuplicateFigures(block.blocks) });
+      continue;
+    }
+    if (block.type === 'figure') {
+      const previous = collapsed[collapsed.length - 1];
+      if (previous?.type === 'figure' && isDuplicateFigure(previous, block)) {
+        collapsed[collapsed.length - 1] = preferFigure(previous, block);
+        continue;
+      }
+    }
+    collapsed.push(block);
+  }
+  return collapsed;
+}
+
+function loneMedia(element: Element): Element | null {
+  const tag = tagName(element);
+  if (tag === 'img' || tag === 'picture') return element;
+  if ((element.textContent ?? '').trim()) return null;
+  const found = Array.from(element.querySelectorAll('picture, img')).filter((node) => {
+    if (tagName(node) === 'img' && node.parentElement && tagName(node.parentElement) === 'picture') return false;
+    return true;
+  });
+  return found.length === 1 ? (found[0] ?? null) : null;
+}
+
+function previousImageElement(node: Element): Element | null {
+  let sibling = node.previousElementSibling;
+  while (sibling) {
+    if (tagName(sibling) === 'noscript') {
+      sibling = sibling.previousElementSibling;
+      continue;
+    }
+    const media = loneMedia(sibling);
+    if (media) return media;
+    if ((sibling.textContent ?? '').trim() || sibling.children.length > 0) return null;
+    sibling = sibling.previousElementSibling;
+  }
+  return null;
+}
+
+function noscriptMedia(noscript: Element): Element | null {
+  return loneMedia(noscript);
+}
+
+/** Keep one image when a lazy slot also ships the same asset inside noscript. */
+function promoteNoscriptImages(root: Element, baseUrl: string): void {
+  const noscripts = Array.from(root.querySelectorAll('noscript'));
+  for (const noscript of noscripts) {
+    const media = noscriptMedia(noscript);
+    const parent = noscript.parentNode;
+    if (!media || !parent) continue;
+    const clone = media.cloneNode(true) as Element;
+    if (!figureFromMedia(clone, baseUrl)) continue;
+    const previous = previousImageElement(noscript);
+    if (previous && !figureFromMedia(previous, baseUrl)) parent.replaceChild(clone, previous);
+  }
+}
+
 function insideFigcaption(element: Element): boolean {
   let parent = element.parentElement;
   while (parent) {
@@ -665,7 +807,7 @@ function pruneBlocks(blocks: BlockNode[]): BlockNode[] {
       if (block.src) kept.push(block);
     }
   }
-  return kept;
+  return collapseDuplicateFigures(kept);
 }
 
 function mountFragment(html: string): HTMLElement | null {
@@ -682,6 +824,7 @@ export function blocksFromHtml(html: string, baseUrl: string): BlockNode[] {
   try {
     const root = mountFragment(trimmed);
     if (!root) return [];
+    promoteNoscriptImages(root, baseUrl);
     stripUnsafe(root);
     prepareContentImages(root, baseUrl);
     return pruneBlocks(blocksFromChildren(root, baseUrl));

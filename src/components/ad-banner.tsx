@@ -60,7 +60,10 @@ function NativeBanner({
         width={width}
         maxHeight={placement === 'article_end_banner' ? 250 : undefined}
         requestOptions={adRequestOptions(ads.config)}
-        onAdFailedToLoad={() => setFailed(true)}
+        onAdFailedToLoad={(error) => {
+          setFailed(true);
+          ads.recordAdLoadError(error);
+        }}
       />
     </View>
   );

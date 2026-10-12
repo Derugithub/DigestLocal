@@ -7,7 +7,9 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { PaywallSheet } from '@/components/paywall-sheet';
 import { AppText, Button, IconButton, Note, Screen, Segmented } from '@/components/ui';
 import { PRIVACY_POLICY_URL } from '@/lib/ads/ad-config';
+import { AD_PLACEMENTS } from '@/lib/ads/ad-units';
 import { useAds } from '@/lib/ads/ads-context';
+import { isTestAdsMode } from '@/lib/ads/ads-mode';
 import { useEntitlement } from '@/lib/entitlement';
 import { useAppTheme } from '@/theme/preferences';
 import type { ThemePreference } from '@/theme/palette';
@@ -159,6 +161,17 @@ export default function SettingsScreen() {
               variant="secondary"
               onPress={() => void ads.showConsentDebug()}
             />
+          </View>
+        ) : null}
+
+        {isTestAdsMode() ? (
+          <View style={styles.block}>
+            <AppText variant="label" color={colors.faint}>
+              Ads status
+            </AppText>
+            <AppText variant="meta" color={colors.soft}>
+              {`Initialized: ${ads.ready ? 'yes' : 'no'}\nConsent: ${ads.consentStatus}\nSession: ${ads.sessionCount}\nUnit IDs:\n${AD_PLACEMENTS.map((placement) => `${placement}: ${ads.unitId(placement) ?? 'off'}`).join('\n')}\nLast load error: ${ads.lastLoadError ?? 'none'}`}
+            </AppText>
           </View>
         ) : null}
 

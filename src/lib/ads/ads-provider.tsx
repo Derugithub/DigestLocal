@@ -41,6 +41,18 @@ const FULLSCREEN_MAX_AGE_MS = 60 * 60 * 1000;
 const SHOW_EVENT_TIMEOUT_MS = 3000;
 const CLOSE_TIMEOUT_MS = 120_000;
 
+function adLoadErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    return message.slice(0, 300) || 'Ad failed to load';
+  }
+  if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 300);
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' && error.message.trim()) {
+    return error.message.trim().slice(0, 300);
+  }
+  return 'Ad failed to load';
+}
+
 async function loadNative() {
   const { loadGoogleMobileAds } = await import('@/lib/ads/native-ads');
   return loadGoogleMobileAds();
@@ -130,6 +142,8 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   const [libraryTestIds, setLibraryTestIds] = useState<TestIdMap | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [trackedPro, setTrackedPro] = useState(isPro);
+  const [consentStatus, setConsentStatus] = useState('not read');
+  const [lastLoadError, setLastLoadError] = useState<string | null>(null);
 
   // Turning Pro off tears the SDK flags down without an effect, so the next
   // render can start init again. Displayed readiness is also gated on !isPro.
@@ -283,6 +297,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
         setCanRequestAds(info.canRequestAds);
         canRequestRef.current = info.canRequestAds;
+        setConsentStatus(info.status);
         if (!info.canRequestAds) {
           initRef.current = 'done';
           return;
@@ -411,6 +426,9 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         ad.addAdEventListener(native.AdEventType.LOADED, () => {
           record.loadedAt = Date.now();
         });
+        ad.addAdEventListener(native.AdEventType.ERROR, (error) => {
+          setLastLoadError(adLoadErrorText(error));
+        });
         ad.load();
         interstitialRef.current = record;
       });
@@ -444,7 +462,10 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         record.loadedAt = Date.now();
         setRewardedFlag(true);
       });
-      ad.addAdEventListener(native.AdEventType.ERROR, () => setRewardedFlag(false));
+      ad.addAdEventListener(native.AdEventType.ERROR, (error) => {
+        setRewardedFlag(false);
+        setLastLoadError(adLoadErrorText(error));
+      });
       ad.load();
       rewardedRef.current = record;
     });
@@ -553,6 +574,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
       setCanRequestAds(info.canRequestAds);
       canRequestRef.current = info.canRequestAds;
+      setConsentStatus(info.status);
     } catch (error) {
       console.warn('DigestLocal ads: privacy options did not open.', error);
     }
@@ -566,9 +588,14 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
       setCanRequestAds(info.canRequestAds);
       canRequestRef.current = info.canRequestAds;
+      setConsentStatus(info.status);
     } catch (error) {
       console.warn('DigestLocal ads: debug consent form did not open.', error);
     }
+  }, []);
+
+  const recordAdLoadError = useCallback((error: unknown) => {
+    setLastLoadError(adLoadErrorText(error));
   }, []);
 
   const resetAdCounters = useCallback(async () => {
@@ -627,17 +654,24 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       showPrivacyOptions,
       showConsentDebug,
       resetAdCounters,
+      sessionCount: state?.sessionCount ?? 0,
+      consentStatus,
+      lastLoadError,
+      recordAdLoadError,
     };
   }, [
     adState,
     canRequestAds,
     config,
+    consentStatus,
     isPro,
+    lastLoadError,
     now,
     preloadInterstitial,
     preloadRewarded,
     privacyOptionsRequired,
     ready,
+    recordAdLoadError,
     release,
     resetAdCounters,
     rewardedLoaded,
