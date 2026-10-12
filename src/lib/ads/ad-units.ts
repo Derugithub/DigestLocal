@@ -19,19 +19,20 @@ export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = {
  * Google's public test unit IDs, matching `TestIds` in react-native-google-mobile-ads 17.2.0.
  * Runtime test mode prefers the library's `TestIds` object so platform selection stays in the SDK.
  */
-export const GOOGLE_TEST_UNIT_IDS: Record<'android' | 'ios', Record<AdPlacement, string>> = {
+export const GOOGLE_TEST_UNIT_IDS: Record<'android', Record<AdPlacement, string>> = {
   android: {
     shelf_banner: 'ca-app-pub-3940256099942544/9214589741',
     article_end_banner: 'ca-app-pub-3940256099942544/9214589741',
     save_interstitial: 'ca-app-pub-3940256099942544/1033173712',
     study_rewarded: 'ca-app-pub-3940256099942544/5224354917',
   },
-  ios: {
-    shelf_banner: 'ca-app-pub-3940256099942544/2435281174',
-    article_end_banner: 'ca-app-pub-3940256099942544/2435281174',
-    save_interstitial: 'ca-app-pub-3940256099942544/4411468910',
-    study_rewarded: 'ca-app-pub-3940256099942544/1712485313',
-  },
+  // Kept for a future iOS release. Android is the only ad target for now.
+  // ios: {
+  //   shelf_banner: 'ca-app-pub-3940256099942544/2435281174',
+  //   article_end_banner: 'ca-app-pub-3940256099942544/2435281174',
+  //   save_interstitial: 'ca-app-pub-3940256099942544/4411468910',
+  //   study_rewarded: 'ca-app-pub-3940256099942544/1712485313',
+  // },
 };
 
 export type TestIdMap = Record<AdPlacement, string>;
@@ -45,7 +46,7 @@ export function resetUnitIdWarnings(): void {
 /**
  * Returns a unit ID, or null when live mode still has a placeholder (ads stay off).
  * In test mode the value is `TestIds.*` from the installed library when `testIds` is passed,
- * otherwise the matching public Google test ID for the platform.
+ * otherwise the public Google test ID for Android. iOS test IDs are commented out.
  */
 export function getUnitId(
   placement: AdPlacement,
@@ -54,8 +55,10 @@ export function getUnitId(
   if (options.testMode) {
     const fromLibrary = options.testIds?.[placement];
     if (fromLibrary) return fromLibrary;
-    const platform = options.platform === 'ios' ? 'ios' : 'android';
-    return GOOGLE_TEST_UNIT_IDS[platform][placement];
+    // Kept for a future iOS release. Android is the only ad target for now.
+    // const platform = options.platform === 'ios' ? 'ios' : 'android';
+    // return GOOGLE_TEST_UNIT_IDS[platform][placement];
+    return GOOGLE_TEST_UNIT_IDS.android[placement];
   }
 
   const id = PRODUCTION_UNIT_IDS[placement];

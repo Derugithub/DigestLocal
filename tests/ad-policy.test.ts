@@ -29,9 +29,7 @@ import {
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
   applyRootMobileAdsAppIds,
   GOOGLE_SAMPLE_ANDROID_APP_ID,
-  GOOGLE_SAMPLE_IOS_APP_ID,
   resolveAndroidAppId,
-  resolveIosAppId,
   resolveMobileAdsAppIds,
   syncRootMobileAdsAppIds,
 } from '../src/lib/ads/android-app-id.js';
@@ -237,6 +235,10 @@ test('getUnitId uses Google test ids in test mode and disables placeholder live 
   );
   assert.equal(getUnitId('study_rewarded', { testMode: true, platform: 'android' }), GOOGLE_TEST_UNIT_IDS.android.study_rewarded);
   assert.equal(
+    getUnitId('shelf_banner', { testMode: true, platform: 'ios' }),
+    GOOGLE_TEST_UNIT_IDS.android.shelf_banner,
+  );
+  assert.equal(
     getUnitId('shelf_banner', {
       testMode: true,
       testIds: { shelf_banner: 'from-library' },
@@ -278,34 +280,31 @@ test('Android app id falls back to the sample outside production and throws in p
   );
 });
 
-test('non-live builds replace the root AdMob app ids and live builds still reject placeholders', () => {
-  assert.equal(
-    resolveIosAppId({ profile: 'preview', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    GOOGLE_SAMPLE_IOS_APP_ID,
-  );
-  assert.equal(
-    resolveIosAppId({ profile: 'production', fromConfig: GOOGLE_SAMPLE_IOS_APP_ID }),
-    GOOGLE_SAMPLE_IOS_APP_ID,
-  );
-  assert.throws(
-    () => resolveIosAppId({ profile: 'production', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    /real AdMob iOS app ID/,
-  );
+test('non-live builds replace the Android app id and keep iOS ads commented out', () => {
+  const source = readFileSync('app.json', 'utf8');
+  assert.match(source, /\/\/ Kept for a future iOS release\. Android is the only ad target for now\./);
+  assert.match(source, /\/\/ "iosAppId": "ca-app-pub-3940256099942544~1458002511"/);
+  assert.match(source, /\/\/ "ios_app_id": "ca-app-pub-3940256099942544~1458002511"/);
+  assert.match(source, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.match(source, /"android_app_id": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
 
   const ids = resolveMobileAdsAppIds({
     profile: 'preview',
     adsMode: 'test',
     androidFromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER,
-    iosFromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER,
   });
   assert.deepEqual(ids, {
     androidAppId: GOOGLE_SAMPLE_ANDROID_APP_ID,
-    iosAppId: GOOGLE_SAMPLE_IOS_APP_ID,
   });
-  const rewritten = applyRootMobileAdsAppIds(readFileSync('app.json', 'utf8'), ids);
-  assert.match(rewritten, new RegExp(`"android_app_id": "${GOOGLE_SAMPLE_ANDROID_APP_ID}"`));
-  assert.match(rewritten, new RegExp(`"ios_app_id": "${GOOGLE_SAMPLE_IOS_APP_ID}"`));
+  const rewritten = applyRootMobileAdsAppIds(source, ids);
+  const parsed = JSON.parse(rewritten) as {
+    expo: { plugins: unknown[] };
+    'react-native-google-mobile-ads': { android_app_id?: string; ios_app_id?: string };
+  };
+  assert.equal(parsed['react-native-google-mobile-ads'].android_app_id, GOOGLE_SAMPLE_ANDROID_APP_ID);
+  assert.equal(parsed['react-native-google-mobile-ads'].ios_app_id, undefined);
   assert.match(rewritten, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.doesNotMatch(rewritten, /iosAppId|ios_app_id/);
 
   const dir = mkdtempSync(path.join(tmpdir(), 'digestlocal-ads-'));
   const file = path.join(dir, 'app.json');
@@ -316,6 +315,8 @@ test('non-live builds replace the root AdMob app ids and live builds still rejec
   const written = readFileSync(file, 'utf8');
   assert.match(written, new RegExp(`"android_app_id": "${GOOGLE_SAMPLE_ANDROID_APP_ID}"`));
   assert.match(written, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.doesNotMatch(written, /iosAppId|ios_app_id/);
+  assert.equal(JSON.parse(written)['react-native-google-mobile-ads'].android_app_id, GOOGLE_SAMPLE_ANDROID_APP_ID);
   assert.equal(syncRootMobileAdsAppIds(ids, { env: { EAS_BUILD: 'true' }, argv: ['node'], file }), false);
   rmSync(dir, { recursive: true, force: true });
 });

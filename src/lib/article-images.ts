@@ -10,6 +10,7 @@ import {
   remoteImageSources,
 } from '@/lib/article-html';
 import { DIGEST_USER_AGENT } from '@/lib/fetch-page';
+import { imageRequestHeaders, refererAfterRejection } from '@/lib/image-referer';
 
 const MAX_IMAGES = 30;
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -34,15 +35,27 @@ function extensionFor(mime: string): string {
   return 'img';
 }
 
-function imageHeaders(pageUrl: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.5',
-  };
-  if (Platform.OS !== 'web') {
-    headers['User-Agent'] = DIGEST_USER_AGENT;
-    headers.Referer = pageUrl;
+function imageHeaders(referer?: string): Record<string, string> {
+  return imageRequestHeaders({
+    userAgent: Platform.OS !== 'web' ? DIGEST_USER_AGENT : undefined,
+    referer,
+  });
+}
+
+async function fetchImage(url: string, referer: string | undefined, signal: AbortSignal): Promise<Response> {
+  return fetch(url, {
+    headers: imageHeaders(referer),
+    signal,
+    redirect: 'follow',
+  });
+}
+
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.arrayBuffer();
+  } catch {
+    // The rejected body is unused. The retry should still run.
   }
-  return headers;
 }
 
 function looksLikeMarkup(bytes: Uint8Array): boolean {
@@ -57,11 +70,12 @@ async function downloadImage(directory: Directory, url: string, pageUrl: string,
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
-      headers: imageHeaders(pageUrl),
-      signal: controller.signal,
-      redirect: 'follow',
-    });
+    let response = await fetchImage(url, undefined, controller.signal);
+    const retryReferer = refererAfterRejection(response.status, pageUrl);
+    if (retryReferer) {
+      await discardBody(response);
+      response = await fetchImage(url, retryReferer, controller.signal);
+    }
     if (!response.ok) return null;
     const mime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
     if (!mime.startsWith('image/') || mime === 'image/svg+xml') return null;

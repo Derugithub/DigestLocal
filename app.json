@@ -66,7 +66,8 @@
         "react-native-google-mobile-ads",
         {
           "androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+          // Kept for a future iOS release. Android is the only ad target for now.
+          // "iosAppId": "ca-app-pub-3940256099942544~1458002511",
           "delayAppMeasurementInit": true
         }
       ],
@@ -91,7 +92,8 @@
   },
   "react-native-google-mobile-ads": {
     "android_app_id": "ca-app-pub-XXXXXXXX~YYYYYYYY",
-    "ios_app_id": "ca-app-pub-3940256099942544~1458002511",
+    // Kept for a future iOS release. Android is the only ad target for now.
+    // "ios_app_id": "ca-app-pub-3940256099942544~1458002511",
     "delay_app_measurement_init": true
   }
 }

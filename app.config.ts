@@ -10,12 +10,16 @@ function proEnabledFromValue(value: unknown): boolean {
 }
 
 /**
- * app.json stays the source for everything except the resolved AdMob app IDs and ads mode.
- * Non-live builds substitute Google's sample app IDs so a placeholder never reaches the SDK.
+ * app.json stays the source for everything except the resolved AdMob Android app ID and ads mode.
+ * Non-live builds substitute Google's sample Android app ID so a placeholder never reaches the SDK.
  * A live build throws until a real Android app ID is set in app.json or ADMOB_ANDROID_APP_ID.
  *
  * The Expo plugin options and the root `react-native-google-mobile-ads` block are separate.
  * Gradle reads the root `android_app_id` from disk, so native builds also rewrite that block.
+ * That rewrite drops full-line comments so Gradle's strict JSON parser still sees the Android app ID.
+ *
+ * Kept for a future iOS release. Android is the only ad target for now.
+ * "iosAppId": "ca-app-pub-3940256099942544~1458002511",
  */
 export default ({ config }: ConfigContext): ExpoConfig => {
   const profile = process.env.EAS_BUILD_PROFILE ?? 'local';
@@ -31,17 +35,21 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     adsMode,
     androidFromEnv: process.env.ADMOB_ANDROID_APP_ID,
     androidFromConfig: typeof options.androidAppId === 'string' ? options.androidAppId : undefined,
-    iosFromEnv: process.env.ADMOB_IOS_APP_ID,
-    iosFromConfig: typeof options.iosAppId === 'string' ? options.iosAppId : undefined,
+    // Kept for a future iOS release. Android is the only ad target for now.
+    // iosFromEnv: process.env.ADMOB_IOS_APP_ID,
+    // iosFromConfig: typeof options.iosAppId === 'string' ? options.iosAppId : undefined,
   });
   syncRootMobileAdsAppIds(ids);
 
   const plugins = (config.plugins ?? []).map((plugin) => {
     if (!Array.isArray(plugin) || plugin[0] !== 'react-native-google-mobile-ads') return plugin;
     const current = { ...(plugin[1] ?? {}) } as Record<string, unknown>;
+    // Kept for a future iOS release. Android is the only ad target for now.
+    // iosAppId: 'ca-app-pub-3940256099942544~1458002511',
+    delete current.iosAppId;
     return [
       'react-native-google-mobile-ads',
-      { ...current, androidAppId: ids.androidAppId, iosAppId: ids.iosAppId },
+      { ...current, androidAppId: ids.androidAppId },
     ] as [string, Record<string, unknown>];
   });
 
