@@ -504,7 +504,9 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     (placement: AdPlacement) =>
       getUnitId(placement, {
         testMode: isTestAdsMode(),
-        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        // Kept for a future iOS release. Android is the only ad target for now.
+        // platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        platform: 'android',
         testIds: libraryTestIds ?? undefined,
       }),
     [libraryTestIds],

@@ -8,8 +8,8 @@ const ADMOB_ANDROID_APP_ID_PLACEHOLDER = 'ca-app-pub-XXXXXXXX~YYYYYYYY';
 /** Google's public sample Android app ID. Safe for local, development, and preview builds. */
 const GOOGLE_SAMPLE_ANDROID_APP_ID = 'ca-app-pub-3940256099942544~3347511713';
 
-/** Google's public sample iOS app ID. iOS is not a launch target. */
-const GOOGLE_SAMPLE_IOS_APP_ID = 'ca-app-pub-3940256099942544~1458002511';
+// Kept for a future iOS release. Android is the only ad target for now.
+// const GOOGLE_SAMPLE_IOS_APP_ID = 'ca-app-pub-3940256099942544~1458002511';
 
 /**
  * A build is live when ADS_MODE is live, or when the EAS profile is production
@@ -48,16 +48,13 @@ function resolveAndroidAppId(input) {
   throw new Error('Set the real AdMob Android app ID before a production build');
 }
 
-/**
- * Same cascade as Android. The committed iOS value is already Google's sample ID,
- * so a live build throws only when that value is still the placeholder.
- */
-function resolveIosAppId(input) {
-  const real = firstRealId(input.fromEnv, input.fromConfig);
-  if (real) return real;
-  if (!isLiveAdBuild(input)) return GOOGLE_SAMPLE_IOS_APP_ID;
-  throw new Error('Set the real AdMob iOS app ID before a production build');
-}
+// Kept for a future iOS release. Android is the only ad target for now.
+// function resolveIosAppId(input) {
+//   const real = firstRealId(input.fromEnv, input.fromConfig);
+//   if (real) return real;
+//   if (!isLiveAdBuild(input)) return GOOGLE_SAMPLE_IOS_APP_ID;
+//   throw new Error('Set the real AdMob iOS app ID before a production build');
+// }
 
 function resolveMobileAdsAppIds(input) {
   return {
@@ -67,21 +64,37 @@ function resolveMobileAdsAppIds(input) {
       fromEnv: input.androidFromEnv,
       fromConfig: input.androidFromConfig,
     }),
-    iosAppId: resolveIosAppId({
-      profile: input.profile,
-      adsMode: input.adsMode,
-      fromEnv: input.iosFromEnv,
-      fromConfig: input.iosFromConfig,
-    }),
+    // Kept for a future iOS release. Android is the only ad target for now.
+    // iosAppId: resolveIosAppId({
+    //   profile: input.profile,
+    //   adsMode: input.adsMode,
+    //   fromEnv: input.iosFromEnv,
+    //   fromConfig: input.iosFromConfig,
+    // }),
   };
 }
 
 /**
- * Gradle and the iOS build script read the root `react-native-google-mobile-ads`
- * block from app.json on disk. The Expo plugin fields are a different pair of keys.
+ * Gradle reads the root `react-native-google-mobile-ads` block from app.json on disk.
+ * The Expo plugin `androidAppId` is a different key. The iOS app id stays commented out.
+ */
+function withoutFullLineComments(source) {
+  return source
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n');
+}
+
+/**
+ * Writes the resolved Android app ID. The iOS id stays commented out for a future iOS release.
+ * Gradle parses app.json with strict JSON, so the native-build rewrite also drops full-line comments.
+ * `expo start` does not write that rewrite, and the Android placeholder in git stays unchanged.
  */
 function applyRootMobileAdsAppIds(appJsonText, ids) {
-  return replaceJsonString(replaceJsonString(appJsonText, 'android_app_id', ids.androidAppId), 'ios_app_id', ids.iosAppId);
+  const withAndroid = replaceJsonString(appJsonText, 'android_app_id', ids.androidAppId);
+  // Kept for a future iOS release. Android is the only ad target for now.
+  // return replaceJsonString(withAndroid, 'ios_app_id', ids.iosAppId);
+  return withoutFullLineComments(withAndroid);
 }
 
 function replaceJsonString(source, key, value) {
@@ -122,9 +135,7 @@ function syncRootMobileAdsAppIds(ids, options = {}) {
 module.exports = {
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
   GOOGLE_SAMPLE_ANDROID_APP_ID,
-  GOOGLE_SAMPLE_IOS_APP_ID,
   resolveAndroidAppId,
-  resolveIosAppId,
   resolveMobileAdsAppIds,
   applyRootMobileAdsAppIds,
   shouldSyncRootAppJson,
