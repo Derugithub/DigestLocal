@@ -8,8 +8,11 @@ import {
   canOfferRewarded,
   canShowBanner,
   canShowInterstitial,
+  fullscreenReloadDelayMs,
+  interstitialBlockReason,
   localDateKey,
   nextSessionState,
+  rewardedBlockReason,
   type PolicyInput,
 } from '../src/lib/ads/ad-policy.ts';
 import { emptyAdState, type AdState } from '../src/lib/ads/ad-state.ts';
@@ -235,7 +238,56 @@ test('a cold start is session 1, and 30 minutes in the background starts the nex
   const backgrounded = nextSessionState(first, { type: 'background' }, config, NOW + 60_000);
   const soon = nextSessionState(backgrounded, { type: 'active' }, config, NOW + 60_000 + 29 * 60 * 1000);
   assert.equal(soon.sessionCount, 1);
+  assert.equal(soon.lastBackgroundAt, null);
 
   const later = nextSessionState(backgrounded, { type: 'active' }, config, NOW + 60_000 + 30 * 60 * 1000);
   assert.equal(later.sessionCount, 2);
+  assert.equal(later.sessionStartedAt, NOW + 60_000 + 30 * 60 * 1000);
+});
+
+test('session count persists across a cold start only after a recorded 30 minute background', () => {
+  const config = { ...AD_DEFAULTS };
+  const first = nextSessionState(emptyAdState(NOW), { type: 'launch' }, config, NOW);
+
+  const killedWhileActive = nextSessionState(first, { type: 'launch' }, config, NOW + 5 * 60 * 1000);
+  assert.equal(killedWhileActive.sessionCount, 1);
+  assert.equal(killedWhileActive.sessionStartedAt, first.sessionStartedAt);
+
+  const left = nextSessionState(first, { type: 'background' }, config, NOW + 60_000);
+  const briefColdStart = nextSessionState(left, { type: 'launch' }, config, NOW + 60_000 + 10 * 60 * 1000);
+  assert.equal(briefColdStart.sessionCount, 1);
+
+  const longColdStart = nextSessionState(left, { type: 'launch' }, config, NOW + 60_000 + 30 * 60 * 1000);
+  assert.equal(longColdStart.sessionCount, 2);
+  assert.equal(longColdStart.lastBackgroundAt, null);
+
+  const secondBackground = nextSessionState(left, { type: 'background' }, config, NOW + 60_000 + 30 * 60 * 1000);
+  assert.equal(secondBackground.lastBackgroundAt, left.lastBackgroundAt);
+  const resume = nextSessionState(secondBackground, { type: 'active' }, config, NOW + 60_000 + 30 * 60 * 1000);
+  assert.equal(resume.sessionCount, 2);
+});
+
+test('interstitial and rewarded block reasons name the cap that failed', () => {
+  assert.equal(interstitialBlockReason('save', input({}, { sessionCount: 2 })), 'session 2 is below 3');
+  assert.equal(
+    interstitialBlockReason('save', input({}, { sessionStartedAt: NOW - 30_000 })),
+    '30s into session, need 90s',
+  );
+  assert.equal(interstitialBlockReason('save', input({}, { saveInterstitialCounter: 4 })), 'save 4 is not a multiple of 3');
+  assert.equal(interstitialBlockReason('save', input()), null);
+  assert.equal(interstitialBlockReason('save', input({ fromShare: true })), 'opened from a share');
+
+  assert.equal(
+    rewardedBlockReason('quiz_unlock', input({}, { quizUnlocksToday: { date: localDateKey(NOW), count: 3 } })),
+    'quiz unlock daily cap 3',
+  );
+  assert.equal(rewardedBlockReason('ad_free', input({}, { adFreeUntil: NOW + 60_000 })), 'ad-free pass already used in the last 24h');
+  assert.equal(rewardedBlockReason('quiz_unlock', input()), null);
+});
+
+test('fullscreen reload backs off and then caps', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].map((attempt) => fullscreenReloadDelayMs(attempt)),
+    [2_000, 4_000, 8_000, 16_000, 30_000, 30_000],
+  );
 });

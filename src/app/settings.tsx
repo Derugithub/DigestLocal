@@ -8,7 +8,7 @@ import { PaywallSheet } from '@/components/paywall-sheet';
 import { AppText, Button, IconButton, Note, Screen, Segmented } from '@/components/ui';
 import { PRIVACY_POLICY_URL } from '@/lib/ads/ad-config';
 import { AD_PLACEMENTS } from '@/lib/ads/ad-units';
-import { useAds } from '@/lib/ads/ads-context';
+import { useAds, type AdsContextValue } from '@/lib/ads/ads-context';
 import { isTestAdsMode } from '@/lib/ads/ads-mode';
 import { useEntitlement } from '@/lib/entitlement';
 import { useAppTheme } from '@/theme/preferences';
@@ -33,6 +33,7 @@ export default function SettingsScreen() {
   const [price, setPrice] = useState<string | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [restoreNote, setRestoreNote] = useState<string | null>(null);
+  const [debugNow, setDebugNow] = useState(() => Date.now());
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +58,12 @@ export default function SettingsScreen() {
     if (!isPro && !ads.adFree && ads.canOfferRewarded('ad_free')) ads.preloadRewarded();
   }, [ads, isPro]);
 
+  useEffect(() => {
+    if (!isTestAdsMode()) return;
+    const id = setInterval(() => setDebugNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const openPrivacyPolicy = () => {
     void WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL);
   };
@@ -71,7 +78,7 @@ export default function SettingsScreen() {
     : null;
 
   const showPaywall = ads.config.paywallEnabled && billingAvailable && !isPro;
-  const showPrivacyChoices = ads.ready && !isPro;
+  const showPrivacyChoices = !isPro && (ads.privacyOptionsRequired || ads.ready);
 
   return (
     <Screen>
@@ -155,7 +162,6 @@ export default function SettingsScreen() {
               Developer
             </AppText>
             <Button label={isPro ? 'Dev: toggle Pro (on)' : 'Dev: toggle Pro'} variant="secondary" onPress={() => void setPro(!isPro)} />
-            <Button label="Dev: reset ad counters" variant="secondary" onPress={() => void ads.resetAdCounters()} />
             <Button
               label="Dev: show consent form (debug geography EEA)"
               variant="secondary"
@@ -170,8 +176,9 @@ export default function SettingsScreen() {
               Ads status
             </AppText>
             <AppText variant="meta" color={colors.soft}>
-              {`Initialized: ${ads.ready ? 'yes' : 'no'}\nConsent: ${ads.consentStatus}\nSession: ${ads.sessionCount}\nUnit IDs:\n${AD_PLACEMENTS.map((placement) => `${placement}: ${ads.unitId(placement) ?? 'off'}`).join('\n')}\nLast load error: ${ads.lastLoadError ?? 'none'}`}
+              {adsStatusText(ads, debugNow)}
             </AppText>
+            <Button label="Reset ad counters" variant="secondary" onPress={() => void ads.resetAdCounters()} />
           </View>
         ) : null}
 
@@ -220,6 +227,35 @@ export default function SettingsScreen() {
       />
     </Screen>
   );
+}
+
+function adsStatusText(ads: AdsContextValue, now: number): string {
+  const seconds =
+    ads.sessionStartedAt == null ? 0 : Math.max(0, Math.floor((now - ads.sessionStartedAt) / 1000));
+  const lastInterstitial =
+    ads.lastFullscreenAt == null
+      ? 'none'
+      : new Date(ads.lastFullscreenAt).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+  const units = AD_PLACEMENTS.map((placement) => `${placement}: ${ads.unitId(placement) ?? 'off'}`).join('\n');
+  return [
+    `Initialized: ${ads.ready ? 'yes' : 'no'}`,
+    `Consent: ${ads.consentStatus} (canRequestAds: ${ads.canRequestAds ? 'yes' : 'no'})`,
+    `Session: ${ads.sessionCount} · ${seconds}s into session (interstitial needs 90s)`,
+    `Save counter: ${ads.saveInterstitialCounter}`,
+    `Last interstitial: ${lastInterstitial}`,
+    `Today's interstitials: ${ads.fullscreenTodayCount}`,
+    `Interstitial load: ${ads.interstitialLoadState}`,
+    `Rewarded load: ${ads.rewardedLoadState}`,
+    `Last ad error: ${ads.lastLoadError ?? 'none'}`,
+    `Last decision: ${ads.lastDecision}`,
+    'Unit IDs:',
+    units,
+  ].join('\n');
 }
 
 const styles = StyleSheet.create({

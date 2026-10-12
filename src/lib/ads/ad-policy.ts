@@ -42,28 +42,44 @@ export function isAdFree(state: AdState, now: number): boolean {
   return state.adFreeUntil != null && state.adFreeUntil > now;
 }
 
+export function initBlockReason(
+  state: AdState,
+  config: AdConfig,
+  options?: { isPro?: boolean; platform?: string },
+): string | null {
+  if (options?.isPro) return 'Pro';
+  if (options?.platform === 'web') return 'web';
+  if (!config.adsEnabled) return 'ads disabled';
+  if (state.sessionCount < config.minSessionForAds) {
+    return `session ${state.sessionCount} is below ${config.minSessionForAds}`;
+  }
+  if (state.savedCount < config.minSavedForAds) {
+    return `saved ${state.savedCount} is below ${config.minSavedForAds}`;
+  }
+  return null;
+}
+
 export function canInitAds(
   state: AdState,
   config: AdConfig,
   options?: { isPro?: boolean; platform?: string },
 ): boolean {
-  if (options?.isPro) return false;
-  if (options?.platform === 'web') return false;
-  if (!config.adsEnabled) return false;
-  if (state.sessionCount < config.minSessionForAds) return false;
-  if (state.savedCount < config.minSavedForAds) return false;
-  return true;
+  return initBlockReason(state, config, options) == null;
+}
+
+function globalBlockReason(input: PolicyInput): string | null {
+  if (input.isPro) return 'Pro';
+  if (input.platform === 'web') return 'web';
+  if (!input.config.adsEnabled) return 'ads disabled';
+  if (input.ready === false) return 'sdk not ready';
+  if (input.canRequestAds === false) return 'consent does not allow ad requests';
+  if (input.suppressed) return 'suppressed';
+  if (isAdFree(input.state, input.now)) return 'ad-free pass';
+  return null;
 }
 
 function globallyAllowed(input: PolicyInput): boolean {
-  if (input.isPro) return false;
-  if (input.platform === 'web') return false;
-  if (!input.config.adsEnabled) return false;
-  if (input.ready === false) return false;
-  if (input.canRequestAds === false) return false;
-  if (input.suppressed) return false;
-  if (isAdFree(input.state, input.now)) return false;
-  return true;
+  return globalBlockReason(input) == null;
 }
 
 export function canShowBanner(placement: 'shelf_banner' | 'article_end_banner', input: PolicyInput): boolean {
@@ -74,37 +90,54 @@ export function canShowBanner(placement: 'shelf_banner' | 'article_end_banner', 
   return input.config.articleEndBannerEnabled;
 }
 
-function fullscreenCapsAllow(input: PolicyInput): boolean {
+function fullscreenBlockReason(input: PolicyInput): string | null {
   const { state, config, now } = input;
-  if (state.sessionCount < config.minSessionForInterstitial) return false;
-  if (state.savedCount < config.minSavedForInterstitial) return false;
-  const elapsedSec = (now - state.sessionStartedAt) / 1000;
-  if (elapsedSec < config.minSecondsIntoSessionForInterstitial) return false;
-  if (state.lastFullscreenAt != null && now - state.lastFullscreenAt < config.fullscreenCooldownSec * 1000) {
-    return false;
+  if (state.sessionCount < config.minSessionForInterstitial) {
+    return `session ${state.sessionCount} is below ${config.minSessionForInterstitial}`;
   }
-  if (countForToday(state.fullscreenToday, now) >= config.fullscreenDailyCap) return false;
+  if (state.savedCount < config.minSavedForInterstitial) {
+    return `saved ${state.savedCount} is below ${config.minSavedForInterstitial}`;
+  }
+  const elapsedSec = (now - state.sessionStartedAt) / 1000;
+  if (elapsedSec < config.minSecondsIntoSessionForInterstitial) {
+    return `${Math.max(0, Math.floor(elapsedSec))}s into session, need ${config.minSecondsIntoSessionForInterstitial}s`;
+  }
+  if (state.lastFullscreenAt != null && now - state.lastFullscreenAt < config.fullscreenCooldownSec * 1000) {
+    return `fullscreen cooldown (${config.fullscreenCooldownSec}s)`;
+  }
+  if (countForToday(state.fullscreenToday, now) >= config.fullscreenDailyCap) {
+    return `daily cap ${config.fullscreenDailyCap}`;
+  }
   if (
     state.lastRewardedClosedAt != null &&
     now - state.lastRewardedClosedAt < config.afterRewardedCooldownSec * 1000
   ) {
-    return false;
+    return `rewarded cooldown (${config.afterRewardedCooldownSec}s)`;
   }
-  return true;
+  return null;
 }
 
-export function canShowInterstitial(trigger: InterstitialTrigger, input: PolicyInput): boolean {
-  if (trigger === 'back' && !input.config.backNavInterstitialEnabled) return false;
-  if (trigger === 'save' && !input.config.saveInterstitialEnabled) return false;
-  if (!globallyAllowed(input)) return false;
-  if (input.fromShare) return false;
-  if (!fullscreenCapsAllow(input)) return false;
+/** Why a full-screen interstitial must not show, or null when the caps allow it. */
+export function interstitialBlockReason(trigger: InterstitialTrigger, input: PolicyInput): string | null {
+  if (trigger === 'back' && !input.config.backNavInterstitialEnabled) return 'back-nav interstitial is off';
+  if (trigger === 'save' && !input.config.saveInterstitialEnabled) return 'save interstitial is off';
+  const global = globalBlockReason(input);
+  if (global) return global;
+  if (input.fromShare) return 'opened from a share';
+  const caps = fullscreenBlockReason(input);
+  if (caps) return caps;
   if (trigger === 'save') {
     const count = input.state.saveInterstitialCounter;
     const every = input.config.interstitialEveryNSaves;
-    if (count <= 0 || every <= 0 || count % every !== 0) return false;
+    if (count <= 0 || every <= 0 || count % every !== 0) {
+      return `save ${count} is not a multiple of ${every}`;
+    }
   }
-  return true;
+  return null;
+}
+
+export function canShowInterstitial(trigger: InterstitialTrigger, input: PolicyInput): boolean {
+  return interstitialBlockReason(trigger, input) == null;
 }
 
 /**
@@ -124,15 +157,23 @@ export function canPreloadInterstitial(trigger: InterstitialTrigger, input: Poli
   return true;
 }
 
-function rewardedWindowOpen(input: PolicyInput): boolean {
-  if (input.isPro || input.platform === 'web') return false;
-  if (!input.config.adsEnabled) return false;
-  if (input.ready === false || input.canRequestAds === false) return false;
-  if (input.suppressed) return false;
-  if (input.state.sessionCount < input.config.minSessionForAds) return false;
-  if (input.state.savedCount < input.config.minSavedForAds) return false;
-  if (countForToday(input.state.rewardedToday, input.now) >= input.config.rewardedDailyCap) return false;
-  return true;
+function rewardedWindowReason(input: PolicyInput): string | null {
+  if (input.isPro) return 'Pro';
+  if (input.platform === 'web') return 'web';
+  if (!input.config.adsEnabled) return 'ads disabled';
+  if (input.ready === false) return 'sdk not ready';
+  if (input.canRequestAds === false) return 'consent does not allow ad requests';
+  if (input.suppressed) return 'suppressed';
+  if (input.state.sessionCount < input.config.minSessionForAds) {
+    return `session ${input.state.sessionCount} is below ${input.config.minSessionForAds}`;
+  }
+  if (input.state.savedCount < input.config.minSavedForAds) {
+    return `saved ${input.state.savedCount} is below ${input.config.minSavedForAds}`;
+  }
+  if (countForToday(input.state.rewardedToday, input.now) >= input.config.rewardedDailyCap) {
+    return `rewarded daily cap ${input.config.rewardedDailyCap}`;
+  }
+  return null;
 }
 
 function adFreeGrantBlocked(state: AdState, config: AdConfig, now: number): boolean {
@@ -142,19 +183,43 @@ function adFreeGrantBlocked(state: AdState, config: AdConfig, now: number): bool
   return now < grantedAt + 24 * 60 * 60 * 1000;
 }
 
+/** Why a rewarded offer must not be made, or null when the caps allow it. */
+export function rewardedBlockReason(kind: RewardedKind, input: PolicyInput): string | null {
+  const windowReason = rewardedWindowReason(input);
+  if (windowReason) return windowReason;
+  if (kind === 'ad_free') {
+    if (adFreeGrantBlocked(input.state, input.config, input.now)) return 'ad-free pass already used in the last 24h';
+    return null;
+  }
+  if (isAdFree(input.state, input.now)) return 'ad-free pass';
+  if (countForToday(input.state.quizUnlocksToday, input.now) >= input.config.quizUnlockPerDay) {
+    return `quiz unlock daily cap ${input.config.quizUnlockPerDay}`;
+  }
+  return null;
+}
+
 export function canOfferRewarded(kind: RewardedKind, input: PolicyInput): boolean {
-  if (!rewardedWindowOpen(input)) return false;
-  if (kind === 'ad_free') return !adFreeGrantBlocked(input.state, input.config, input.now);
-  if (isAdFree(input.state, input.now)) return false;
-  return countForToday(input.state.quizUnlocksToday, input.now) < input.config.quizUnlockPerDay;
+  return rewardedBlockReason(kind, input) == null;
+}
+
+const RELOAD_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000] as const;
+
+/** Backoff after a fullscreen load or init failure. `attempt` is how many failures already happened. */
+export function fullscreenReloadDelayMs(attempt: number): number {
+  const index = Math.min(RELOAD_DELAYS_MS.length - 1, Math.max(0, Math.floor(attempt)));
+  return RELOAD_DELAYS_MS[index];
 }
 
 export function nextSessionState(state: AdState, event: SessionEvent, config: AdConfig, now: number): AdState {
+  const gapMs = config.sessionGapMinutes * 60 * 1000;
+
+  // Keep the earliest departure. A later background event (iOS emits one again
+  // on the way back to the foreground) must not restart the 30 minute clock.
   if (event.type === 'background') {
+    if (state.lastBackgroundAt != null) return state;
     return { ...state, lastBackgroundAt: now };
   }
 
-  const gapMs = config.sessionGapMinutes * 60 * 1000;
   if (event.type === 'launch') {
     if (state.firstOpenAt == null || state.sessionCount < 1) {
       return {
@@ -165,20 +230,21 @@ export function nextSessionState(state: AdState, event: SessionEvent, config: Ad
         lastBackgroundAt: null,
       };
     }
-    const away = state.lastBackgroundAt == null ? gapMs : now - state.lastBackgroundAt;
-    if (away >= gapMs) {
-      return {
-        ...state,
-        sessionCount: state.sessionCount + 1,
-        sessionStartedAt: now,
-        lastBackgroundAt: null,
-      };
-    }
-    return state;
+    // No recorded departure means the process died while the app was active.
+    // That is the same session, not a 30 minute background.
+    if (state.lastBackgroundAt == null || now - state.lastBackgroundAt < gapMs) return state;
+    return {
+      ...state,
+      sessionCount: state.sessionCount + 1,
+      sessionStartedAt: now,
+      lastBackgroundAt: null,
+    };
   }
 
   if (state.lastBackgroundAt == null) return state;
-  if (now - state.lastBackgroundAt < gapMs) return state;
+  if (now - state.lastBackgroundAt < gapMs) {
+    return { ...state, lastBackgroundAt: null };
+  }
   const sessionCount = state.sessionCount < 1 ? 1 : state.sessionCount + 1;
   return {
     ...state,

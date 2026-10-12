@@ -90,6 +90,19 @@ export async function saveAdState(state: AdState): Promise<void> {
   }
 }
 
+/**
+ * Flush counters before Android freezes the process on background.
+ * The async write often does not finish, so a 30 minute gap was lost and the
+ * next cold start stayed on session 1.
+ */
+export function saveAdStateSync(state: AdState): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const storage = require('expo-sqlite/kv-store').default as {
+    setItemSync: (key: string, value: string) => void;
+  };
+  storage.setItemSync(STORAGE_KEY, JSON.stringify(state));
+}
+
 export type RemoteConfigCache = { fetchedAt: number; config: unknown };
 
 export async function loadRemoteConfigCache(): Promise<RemoteConfigCache | null> {

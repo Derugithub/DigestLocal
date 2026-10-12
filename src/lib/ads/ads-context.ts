@@ -8,6 +8,7 @@ export type InterstitialTrigger = 'save' | 'back';
 export type RewardedKind = 'ad_free' | 'quiz_unlock';
 export type ShowInterstitialResult = 'shown' | 'skipped';
 export type ShowRewardedResult = 'earned' | 'closed' | 'unavailable' | 'error';
+export type FullscreenLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 
 export type AdsContextValue = {
   ready: boolean;
@@ -36,8 +37,16 @@ export type AdsContextValue = {
   resetAdCounters: () => Promise<void>;
   /** Read-only status for the dev/preview Settings readout. Does not gate ads. */
   sessionCount: number;
+  sessionStartedAt: number | null;
+  saveInterstitialCounter: number;
+  lastFullscreenAt: number | null;
+  fullscreenTodayCount: number;
+  interstitialLoadState: FullscreenLoadState;
+  rewardedLoadState: FullscreenLoadState;
+  canRequestAds: boolean;
   consentStatus: string;
   lastLoadError: string | null;
+  lastDecision: string;
   recordAdLoadError: (error: unknown) => void;
 };
 
@@ -64,8 +73,16 @@ export const idleAdsContext: AdsContextValue = {
   showConsentDebug: async () => undefined,
   resetAdCounters: async () => undefined,
   sessionCount: 0,
+  sessionStartedAt: null,
+  saveInterstitialCounter: 0,
+  lastFullscreenAt: null,
+  fullscreenTodayCount: 0,
+  interstitialLoadState: 'idle',
+  rewardedLoadState: 'idle',
+  canRequestAds: false,
   consentStatus: 'not read',
   lastLoadError: null,
+  lastDecision: 'none yet',
   recordAdLoadError: () => undefined,
 };
 

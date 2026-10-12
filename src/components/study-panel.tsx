@@ -49,8 +49,8 @@ export function StudyPanel({
   }, [release]);
 
   useEffect(() => {
-    if (finished && lockedCount > 0 && !unlocked) preloadRewarded();
-  }, [finished, lockedCount, preloadRewarded, unlocked]);
+    if (finished && lockedCount > 0 && !unlocked && ads.ready && ads.canRequestAds) preloadRewarded();
+  }, [ads.canRequestAds, ads.ready, finished, lockedCount, preloadRewarded, unlocked]);
 
   const resetQuiz = () => {
     setCursor(0);
