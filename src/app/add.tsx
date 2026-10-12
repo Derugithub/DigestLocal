@@ -103,8 +103,9 @@ export default function AddScreen() {
   }, [release]);
 
   useEffect(() => {
+    if (!ads.ready || !ads.canRequestAds) return;
     preloadInterstitial({ fromShare });
-  }, [fromShare, preloadInterstitial]);
+  }, [ads.canRequestAds, ads.ready, fromShare, preloadInterstitial]);
 
   useEffect(() => {
     alive.current = true;
