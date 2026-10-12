@@ -1,6 +1,6 @@
 import * as Speech from 'expo-speech';
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Segmented } from '@/components/ui';
 import { useAds } from '@/lib/ads/ads-context';
@@ -8,24 +8,38 @@ import { chunkForSpeech } from '@/lib/text';
 import { useAppTheme } from '@/theme/preferences';
 import { Fonts } from '@/theme/palette';
 
-const RATES = [
+const FREE_RATES = [
   { value: '0.9', label: '0.9×' },
   { value: '1', label: '1×' },
   { value: '1.15', label: '1.15×' },
   { value: '1.3', label: '1.3×' },
 ] as const;
 
+const EXTRA_RATES = [
+  { value: '1.5', label: '1.5×' },
+  { value: '2', label: '2×' },
+] as const;
+
+type RateValue = (typeof FREE_RATES)[number]['value'] | (typeof EXTRA_RATES)[number]['value'];
+
+function isExtraRate(value: RateValue): value is (typeof EXTRA_RATES)[number]['value'] {
+  return value === '1.5' || value === '2';
+}
+
 export function ListenPanel({ content }: { content: string }) {
   const { colors } = useAppTheme();
-  const { suppress, release } = useAds();
+  const ads = useAds();
+  const { suppress, release } = ads;
+  const extraUnlocked = Platform.OS === 'web' || ads.extraSpeedsUnlocked;
   const chunks = chunkForSpeech(content);
   const [index, setIndex] = useState(0);
   const [status, setStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
-  const [rate, setRate] = useState<(typeof RATES)[number]['value']>('1');
+  const [rate, setRate] = useState<RateValue>('1');
   const [error, setError] = useState<string | null>(null);
+  const [speedNote, setSpeedNote] = useState<string | null>(null);
   const token = useRef(0);
   const indexRef = useRef(0);
-  const rateRef = useRef<(typeof RATES)[number]['value']>('1');
+  const rateRef = useRef<RateValue>('1');
   const statusRef = useRef<'idle' | 'playing' | 'paused'>('idle');
   const held = useRef(false);
 
@@ -45,6 +59,8 @@ export function ListenPanel({ content }: { content: string }) {
       void Speech.stop();
     };
   }, []);
+
+  const speakFromRef = useRef<(start: number) => void>(() => undefined);
 
   const speakFrom = (start: number) => {
     const text = chunks[start];
@@ -88,6 +104,54 @@ export function ListenPanel({ content }: { content: string }) {
     });
   };
 
+  useEffect(() => {
+    speakFromRef.current = speakFrom;
+  });
+
+  const applyRate = (next: RateValue) => {
+    setRate(next);
+    rateRef.current = next;
+    setSpeedNote(null);
+    if (statusRef.current === 'playing') {
+      token.current += 1;
+      void Speech.stop();
+      speakFrom(indexRef.current);
+    }
+  };
+
+  useEffect(() => {
+    if (extraUnlocked || !isExtraRate(rateRef.current)) return;
+    rateRef.current = '1';
+    setRate('1');
+    if (statusRef.current !== 'playing') return;
+    token.current += 1;
+    void Speech.stop();
+    speakFromRef.current(indexRef.current);
+  }, [extraUnlocked]);
+
+  const chooseRate = (next: RateValue) => {
+    if (!isExtraRate(next) || extraUnlocked) {
+      applyRate(next);
+      return;
+    }
+    if (!ads.canOfferRewarded('extra_speeds') || !ads.rewardedLoaded) {
+      setSpeedNote(ads.canOfferRewarded('extra_speeds') ? 'Ad not ready' : 'Not available right now');
+      ads.preloadRewarded();
+      return;
+    }
+    if (statusRef.current === 'playing') {
+      held.current = true;
+      token.current += 1;
+      statusRef.current = 'paused';
+      setStatus('paused');
+      void Speech.stop();
+    }
+    release('listen');
+    void ads.showRewarded('extra_speeds').then((result) => {
+      if (result === 'earned') applyRate(next);
+    });
+  };
+
   const pause = () => {
     held.current = true;
     token.current += 1;
@@ -114,6 +178,23 @@ export function ListenPanel({ content }: { content: string }) {
     setIndex(clamped);
     setStatus('paused');
   };
+
+  const untilLabel =
+    ads.extraSpeedsUntil == null
+      ? null
+      : new Date(ads.extraSpeedsUntil).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+  const speedCaption =
+    speedNote ??
+    (extraUnlocked && !ads.isPro && untilLabel
+      ? `1.5× and 2× until ${untilLabel}.`
+      : extraUnlocked
+        ? null
+        : '0.9× to 1.3× stay free. Watch an ad to unlock 1.5× and 2× for 24 hours.');
 
   const current = chunks[index] ?? '';
   const passage = chunks.length === 0 ? 0 : status === 'idle' && index === 0 ? 1 : index + 1;
@@ -162,19 +243,21 @@ export function ListenPanel({ content }: { content: string }) {
           />
         </View>
       </View>
-      <Segmented
-        value={rate}
-        options={[...RATES]}
-        onChange={(next) => {
-          setRate(next);
-          rateRef.current = next;
-          if (statusRef.current === 'playing') {
-            token.current += 1;
-            void Speech.stop();
-            speakFrom(indexRef.current);
-          }
-        }}
-      />
+      <View style={styles.speeds}>
+        <AppText variant="label" color={colors.faint}>
+          Speed
+        </AppText>
+        <Segmented value={rate} options={[...FREE_RATES]} onChange={chooseRate} />
+        <AppText variant="label" color={colors.faint}>
+          Faster
+        </AppText>
+        <Segmented value={rate} options={[...EXTRA_RATES]} onChange={chooseRate} />
+        {speedCaption ? (
+          <AppText variant="meta" color={colors.faint}>
+            {speedCaption}
+          </AppText>
+        ) : null}
+      </View>
       <AppText variant="meta" color={colors.faint}>
         Pause keeps this passage. Play continues from here. On Android, pause stops the voice and resume repeats the current passage.
       </AppText>
@@ -185,6 +268,7 @@ export function ListenPanel({ content }: { content: string }) {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 22, paddingTop: 8, paddingBottom: 28, gap: 16 },
   heading: { marginTop: -6 },
+  speeds: { gap: 8 },
   passage: { borderWidth: 1, borderRadius: 22, padding: 18, gap: 12 },
   passageText: { fontFamily: Fonts.body, fontSize: 20, lineHeight: 30 },
   row: { flexDirection: 'row', gap: 10 },

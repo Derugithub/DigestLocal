@@ -20,12 +20,14 @@ import {
   initBlockReason,
   interstitialBlockReason,
   isAdFree,
+  nextSaveInterstitialCounter,
   nextSessionState,
   rewardedBlockReason,
   type PolicyInput,
   type RewardedKind,
 } from '@/lib/ads/ad-policy';
 import {
+  emptyAdState,
   loadAdState,
   loadRemoteConfigCache,
   saveAdState,
@@ -38,6 +40,7 @@ import {
   AdsContext,
   type AdsContextValue,
   type FullscreenLoadState,
+  type SdkInitStatus,
   type ShowInterstitialResult,
   type ShowRewardedResult,
   type SuppressionReason,
@@ -173,6 +176,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   const [interstitialLoadState, setInterstitialLoadState] = useState<FullscreenLoadState>('idle');
   const [rewardedLoadState, setRewardedLoadState] = useState<FullscreenLoadState>('idle');
   const [lastDecision, setLastDecision] = useState('none yet');
+  const [initStatus, setInitStatus] = useState<SdkInitStatus>('idle');
   const [initKick, setInitKick] = useState(0);
 
   // Turning Pro off tears the SDK flags down without an effect, so the next
@@ -185,6 +189,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       setRewardedFlag(false);
       setInterstitialLoadState('idle');
       setRewardedLoadState('idle');
+      setInitStatus('idle');
     }
   }
 
@@ -198,7 +203,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   const readyRef = useRef(false);
   const canRequestRef = useRef(false);
   const proRef = useRef(isPro);
-  const initRef = useRef<'idle' | 'running' | 'done'>('idle');
+  const initRef = useRef<'idle' | 'running' | 'done' | 'retry-on-foreground'>('idle');
   const initGeneration = useRef(0);
   const initAttemptRef = useRef(0);
   const initTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -324,6 +329,20 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!booted) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      if (initRef.current !== 'retry-on-foreground' || proRef.current) return;
+      initRef.current = 'idle';
+      initAttemptRef.current = 0;
+      setInitStatus('idle');
+      logAdDecision('sdk init retry', { reason: 'app returned to the foreground' });
+      setInitKick((value) => value + 1);
+    });
+    return () => sub.remove();
+  }, [booted]);
+
+  useEffect(() => {
     if (!isPro) return;
     initRef.current = 'idle';
     if (initTimerRef.current) clearTimeout(initTimerRef.current);
@@ -348,6 +367,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
 
     const generation = initGeneration.current;
     initRef.current = 'running';
+    setInitStatus('running');
     const stale = () => generation !== initGeneration.current || proRef.current || isShareHandoff();
 
     const run = async () => {
@@ -379,12 +399,14 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         canRequestRef.current = info.canRequestAds;
         setConsentStatus(info.status);
         if (!info.canRequestAds) {
-          initRef.current = 'done';
-          logAdDecision('sdk init stopped', {
+          initRef.current = 'retry-on-foreground';
+          setInitStatus('retry-on-foreground');
+          logAdDecision('sdk init waiting', {
             reason: 'consent does not allow ad requests',
             consentStatus: info.status,
+            retry: 'next foreground',
           });
-          setLastDecision('SDK not started: consent does not allow ad requests');
+          setLastDecision('SDK will retry when the app returns to the foreground: consent does not allow ad requests');
           return;
         }
         const testMode = isTestAdsMode();
@@ -412,6 +434,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         setSdkReady(true);
         readyRef.current = true;
         initRef.current = 'done';
+        setInitStatus('ready');
         initAttemptRef.current = 0;
         logAdDecision('sdk ready', { testMode, consentStatus: info.status, adsMode: isTestAdsMode() ? 'test' : 'live' });
         setLastDecision('SDK ready');
@@ -424,7 +447,9 @@ export function AdsProvider({ children }: { children: ReactNode }) {
         const attempt = initAttemptRef.current + 1;
         initAttemptRef.current = attempt;
         if (attempt >= MAX_LOAD_ATTEMPTS) {
-          initRef.current = 'done';
+          initRef.current = 'retry-on-foreground';
+          setInitStatus('retry-on-foreground');
+          setLastDecision(`SDK will retry when the app returns to the foreground: ${message}`);
           return;
         }
         const delay = fullscreenReloadDelayMs(attempt - 1);
@@ -463,21 +488,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       now: Date.now(),
       isPro: proRef.current,
       config: configRef.current,
-      state: stateRef.current ?? adState ?? {
-        firstOpenAt: null,
-        sessionCount: 0,
-        lastBackgroundAt: null,
-        sessionStartedAt: 0,
-        savedCount: 0,
-        saveInterstitialCounter: 0,
-        lastFullscreenAt: null,
-        fullscreenToday: { date: '', count: 0 },
-        rewardedToday: { date: '', count: 0 },
-        quizUnlocksToday: { date: '', count: 0 },
-        lastRewardedClosedAt: null,
-        adFreeUntil: null,
-        quizUnlocks: [],
-      },
+      state: stateRef.current ?? adState ?? emptyAdState(),
       suppressed: reasonsRef.current.size > 0,
       ready: readyRef.current,
       canRequestAds: canRequestRef.current,
@@ -704,6 +715,12 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     preloadRewardedRef.current = preloadRewarded;
   }, [preloadInterstitial, preloadRewarded]);
 
+  useEffect(() => {
+    if (!ready || !canRequestAds || isPro) return;
+    preloadInterstitial();
+    preloadRewarded();
+  }, [canRequestAds, isPro, preloadInterstitial, preloadRewarded, ready]);
+
   const showInterstitialIfEligible = useCallback(
     async (trigger: 'save' | 'back', options?: { fromShare?: boolean }): Promise<ShowInterstitialResult> => {
       if (trigger === 'back') {
@@ -725,7 +742,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       const next = await commit((prev) => ({
         ...prev,
         savedCount,
-        saveInterstitialCounter: prev.saveInterstitialCounter + 1,
+        saveInterstitialCounter: nextSaveInterstitialCounter(prev, configRef.current),
       }));
       if (!next) return 'skipped';
       const input = policyInput({
@@ -845,6 +862,10 @@ export function AdsProvider({ children }: { children: ReactNode }) {
               earned && kind === 'quiz_unlock' ? bumpToday(prev.quizUnlocksToday, now) : prev.quizUnlocksToday,
             adFreeUntil:
               earned && kind === 'ad_free' ? now + configRef.current.adFreePassHours * 60 * 60 * 1000 : prev.adFreeUntil,
+            extraSpeedsUntil:
+              earned && kind === 'extra_speeds'
+                ? now + configRef.current.extraSpeedsHours * 60 * 60 * 1000
+                : prev.extraSpeedsUntil,
             rewardedToday: bumpToday(prev.rewardedToday, now),
             lastRewardedClosedAt: now,
           };
@@ -925,6 +946,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       quizUnlocksToday: { date: '', count: 0 },
       lastRewardedClosedAt: null,
       adFreeUntil: null,
+      extraSpeedsUntil: null,
       quizUnlocks: [],
     }));
   }, [commit]);
@@ -949,6 +971,8 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       isPro,
       adFree,
       adFreeUntil: state?.adFreeUntil ?? null,
+      extraSpeedsUntil: state?.extraSpeedsUntil ?? null,
+      extraSpeedsUnlocked: isPro || (state?.extraSpeedsUntil != null && state.extraSpeedsUntil > now),
       privacyOptionsRequired,
       rewardedLoaded,
       config,
@@ -975,6 +999,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
       rewardedLoadState,
       canRequestAds: canRequestAds && !isPro,
       consentStatus,
+      initStatus,
       lastLoadError,
       lastDecision,
       recordAdLoadError,
@@ -984,6 +1009,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     canRequestAds,
     config,
     consentStatus,
+    initStatus,
     interstitialLoadState,
     isPro,
     lastDecision,
@@ -1011,6 +1037,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     if (!adState) return;
     const deadlines: number[] = [];
     if (adState.adFreeUntil != null) deadlines.push(adState.adFreeUntil);
+    if (adState.extraSpeedsUntil != null) deadlines.push(adState.extraSpeedsUntil);
     if (adState.lastRewardedClosedAt != null) {
       deadlines.push(adState.lastRewardedClosedAt + config.afterRewardedCooldownSec * 1000);
     }

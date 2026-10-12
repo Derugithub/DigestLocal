@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button } from '@/components/ui';
 import { useAds } from '@/lib/ads/ads-context';
@@ -32,11 +32,13 @@ export function StudyPanel({
   const [finished, setFinished] = useState(false);
 
   const questions = article.quiz?.questions ?? [];
-  const unlocked = isPro || ads.quizUnlocked(article.id);
-  const freeCap = ads.config.quizFreeQuestionCap;
-  const activeQuestions = unlocked ? questions : questions.slice(0, freeCap);
+  const unlocked = isPro || ads.quizUnlocked(article.id) || Platform.OS === 'web';
+  const capApplies = !unlocked && ads.sessionCount >= ads.config.minSessionForAds;
+  const activeQuestions = capApplies ? questions.slice(0, ads.config.quizFreeQuestionCap) : questions;
   const lockedCount = Math.max(0, questions.length - activeQuestions.length);
   const question = activeQuestions[cursor];
+  const inQuiz = !finished && (picked !== null || cursor > 0);
+  const showUnlock = lockedCount > 0 && !inQuiz;
 
   useEffect(() => {
     const inProgress = !finished && (picked !== null || cursor > 0);
@@ -49,8 +51,8 @@ export function StudyPanel({
   }, [release]);
 
   useEffect(() => {
-    if (finished && lockedCount > 0 && !unlocked && ads.ready && ads.canRequestAds) preloadRewarded();
-  }, [ads.canRequestAds, ads.ready, finished, lockedCount, preloadRewarded, unlocked]);
+    if (showUnlock && ads.ready && ads.canRequestAds) preloadRewarded();
+  }, [ads.canRequestAds, ads.ready, preloadRewarded, showUnlock]);
 
   const resetQuiz = () => {
     setCursor(0);
@@ -82,6 +84,33 @@ export function StudyPanel({
     setPicked(index);
     if (index === question.answerIndex) setCorrectCount((count) => count + 1);
   };
+
+  const unlockLabel = ads.canOfferRewarded('quiz_unlock')
+    ? ads.rewardedLoaded
+      ? `Watch an ad for ${lockedCount} more questions`
+      : 'Ad not ready'
+    : 'Not available right now';
+
+  const unlockOffer = showUnlock ? (
+    <View style={styles.reward}>
+      <Button
+        label={unlockLabel}
+        onPress={() => {
+          if (!ads.canOfferRewarded('quiz_unlock') || !ads.rewardedLoaded) {
+            preloadRewarded();
+            return;
+          }
+          void showRewarded('quiz_unlock', { articleId: article.id }).then((result) => {
+            if (result === 'earned') resetQuiz();
+          });
+        }}
+        disabled={!ads.canOfferRewarded('quiz_unlock') || !ads.rewardedLoaded}
+      />
+      <AppText variant="meta" color={colors.faint}>
+        Optional
+      </AppText>
+    </View>
+  ) : null;
 
   const next = () => {
     if (cursor + 1 >= activeQuestions.length) {
@@ -149,28 +178,14 @@ export function StudyPanel({
           <AppText variant="title">
             {correctCount} of {activeQuestions.length}
           </AppText>
-          {lockedCount > 0 && !unlocked && ads.canOfferRewarded('quiz_unlock') ? (
-            <View style={styles.reward}>
-              <Button
-                label={ads.rewardedLoaded ? `Watch an ad for ${lockedCount} more questions` : 'Ad not ready'}
-                onPress={() => {
-                  void showRewarded('quiz_unlock', { articleId: article.id }).then((result) => {
-                    if (result === 'earned') resetQuiz();
-                  });
-                }}
-                disabled={!ads.rewardedLoaded}
-              />
-              <AppText variant="meta" color={colors.faint}>
-                Optional
-              </AppText>
-            </View>
-          ) : null}
+          {unlockOffer}
           <Button label="Try the quiz again" variant="secondary" onPress={resetQuiz} />
         </View>
       ) : null}
 
       {question && !finished ? (
         <View style={styles.quiz}>
+          {cursor === 0 && picked === null ? unlockOffer : null}
           <AppText variant="label" color={colors.faint}>
             Question {cursor + 1} of {activeQuestions.length}
           </AppText>

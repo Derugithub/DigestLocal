@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { adRequestOptions } from '@/lib/ads/ad-config';
+import { fullscreenReloadDelayMs } from '@/lib/ads/ad-policy';
 import { useAds } from '@/lib/ads/ads-context';
 import type { AdPlacement, BannerSizeName } from '@/lib/ads/ad-units';
 import { loadGoogleMobileAds } from '@/lib/ads/native-ads';
@@ -11,6 +12,7 @@ import { useAppTheme } from '@/theme/preferences';
 /**
  * Banner wrapper. Renders nothing unless the central policy allows the placement.
  * The Google Mobile Ads module is required only after that check.
+ * A failed load hides the ad and tries again with backoff, instead of staying hidden.
  */
 export function AdBanner({
   placement,
@@ -41,12 +43,23 @@ function NativeBanner({
 }) {
   const { colors } = useAppTheme();
   const ads = useAds();
-  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [waiting, setWaiting] = useState(false);
   const native = loadGoogleMobileAds();
   const BannerAd = native.BannerAd;
   const bannerSize = native.BannerAdSize[size];
 
-  if (failed || ads.isPro || ads.adFree || ads.suppressed) return null;
+  useEffect(() => {
+    if (!waiting) return;
+    const delay = fullscreenReloadDelayMs(attempt);
+    const id = setTimeout(() => {
+      setWaiting(false);
+      setAttempt((value) => value + 1);
+    }, delay);
+    return () => clearTimeout(id);
+  }, [attempt, waiting]);
+
+  if (ads.isPro || ads.adFree || ads.suppressed) return null;
 
   return (
     <View style={styles.slot}>
@@ -54,17 +67,20 @@ function NativeBanner({
         Advertisement
       </AppText>
       <View style={[styles.divider, { backgroundColor: colors.line }]} />
-      <BannerAd
-        unitId={unitId}
-        size={bannerSize}
-        width={width}
-        maxHeight={placement === 'article_end_banner' ? 250 : undefined}
-        requestOptions={adRequestOptions(ads.config)}
-        onAdFailedToLoad={(error) => {
-          setFailed(true);
-          ads.recordAdLoadError(error);
-        }}
-      />
+      {waiting ? null : (
+        <BannerAd
+          key={`${unitId}-${attempt}`}
+          unitId={unitId}
+          size={bannerSize}
+          width={width}
+          maxHeight={placement === 'article_end_banner' ? 250 : undefined}
+          requestOptions={adRequestOptions(ads.config)}
+          onAdFailedToLoad={(error) => {
+            setWaiting(true);
+            ads.recordAdLoadError(error);
+          }}
+        />
+      )}
     </View>
   );
 }

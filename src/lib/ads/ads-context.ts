@@ -5,16 +5,19 @@ import type { AdPlacement } from '@/lib/ads/ad-units';
 
 export type SuppressionReason = 'listen' | 'quiz' | 'fetch' | 'add-sheet';
 export type InterstitialTrigger = 'save' | 'back';
-export type RewardedKind = 'ad_free' | 'quiz_unlock';
+export type RewardedKind = 'ad_free' | 'quiz_unlock' | 'extra_speeds';
 export type ShowInterstitialResult = 'shown' | 'skipped';
 export type ShowRewardedResult = 'earned' | 'closed' | 'unavailable' | 'error';
 export type FullscreenLoadState = 'idle' | 'loading' | 'loaded' | 'error';
+export type SdkInitStatus = 'idle' | 'running' | 'ready' | 'retry-on-foreground';
 
 export type AdsContextValue = {
   ready: boolean;
   isPro: boolean;
   adFree: boolean;
   adFreeUntil: number | null;
+  extraSpeedsUntil: number | null;
+  extraSpeedsUnlocked: boolean;
   privacyOptionsRequired: boolean;
   rewardedLoaded: boolean;
   config: AdConfig;
@@ -45,6 +48,7 @@ export type AdsContextValue = {
   rewardedLoadState: FullscreenLoadState;
   canRequestAds: boolean;
   consentStatus: string;
+  initStatus: SdkInitStatus;
   lastLoadError: string | null;
   lastDecision: string;
   recordAdLoadError: (error: unknown) => void;
@@ -55,6 +59,8 @@ export const idleAdsContext: AdsContextValue = {
   isPro: false,
   adFree: false,
   adFreeUntil: null,
+  extraSpeedsUntil: null,
+  extraSpeedsUnlocked: false,
   privacyOptionsRequired: false,
   rewardedLoaded: false,
   config: adConfigFromDefaults(),
@@ -81,6 +87,7 @@ export const idleAdsContext: AdsContextValue = {
   rewardedLoadState: 'idle',
   canRequestAds: false,
   consentStatus: 'not read',
+  initStatus: 'idle',
   lastLoadError: null,
   lastDecision: 'none yet',
   recordAdLoadError: () => undefined,

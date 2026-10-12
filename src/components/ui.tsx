@@ -175,7 +175,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
 }: {
-  value: T;
+  value: string;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
 }) {
