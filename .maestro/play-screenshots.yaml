@@ -31,7 +31,11 @@ name: Play screenshots
           optional: true
       - eraseText
       - inputText: ${output.urls[output.i]}
-      - hideKeyboard
+      - scrollUntilVisible:
+          element:
+            text: "Fetch page"
+          direction: DOWN
+          timeout: 10000
       - retry:
           maxRetries: 2
           commands:
@@ -80,7 +84,11 @@ name: Play screenshots
     optional: true
 - eraseText
 - inputText: "https://en.wikipedia.org/wiki/Sea_turtle"
-- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Fetch page"
+    direction: DOWN
+    timeout: 10000
 - tapOn: "Fetch page"
 - extendedWaitUntil:
     visible: "Keep on this device"
