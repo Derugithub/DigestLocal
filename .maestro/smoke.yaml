@@ -1,0 +1,7 @@
+appId: app.digestlocal.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 10000
+- takeScreenshot: 01-home
