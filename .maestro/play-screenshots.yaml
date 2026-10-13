@@ -1,0 +1,127 @@
+appId: app.digestlocal.mobile
+name: Play screenshots
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: "The shelf is empty."
+    timeout: 60000
+
+# 1. Save six articles
+- evalScript: >-
+    ${output.urls = [
+      'https://en.wikipedia.org/wiki/Lighthouse',
+      'https://en.wikipedia.org/wiki/Honey_bee',
+      'https://en.wikipedia.org/wiki/Aurora',
+      'https://en.wikipedia.org/wiki/Coffee',
+      'https://en.wikipedia.org/wiki/Bicycle',
+      'https://en.wikipedia.org/wiki/Great_Barrier_Reef'
+    ], output.i = 0}
+- repeat:
+    times: 6
+    commands:
+      - tapOn: "Paste a URL"
+      - extendedWaitUntil:
+          visible: "Save a page"
+          timeout: 15000
+      - extendedWaitUntil:
+          visible: ".*Type a link here\\."
+          timeout: 5000
+          optional: true
+      - tapOn: "Article URL"
+      - eraseText
+      - inputText: ${output.urls[output.i]}
+      - hideKeyboard
+      - retry:
+          maxRetries: 2
+          commands:
+            - tapOn: "Fetch page"
+            - extendedWaitUntil:
+                visible: "Keep on this device"
+                timeout: 120000
+      - tapOn: "Keep on this device"
+      - extendedWaitUntil:
+          visible: "Listen"
+          timeout: 30000
+      - tapOn: "Back to shelf"
+      - extendedWaitUntil:
+          visible: "The shelf"
+          timeout: 15000
+      - evalScript: ${output.i = output.i + 1}
+- extendedWaitUntil:
+    visible: "6 saved · offline"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 01-shelf
+
+# 2. Reader with a saved image
+- tapOn: "Lighthouse.*"
+- extendedWaitUntil:
+    visible: "On this device"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: "Article image"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- waitForAnimationToEnd
+- takeScreenshot: 02-reader
+- tapOn: "Back to shelf"
+
+# 3. Add screen with preview
+- tapOn: "Paste a URL"
+- extendedWaitUntil:
+    visible: "Save a page"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".*Type a link here\\."
+    timeout: 5000
+    optional: true
+- tapOn: "Article URL"
+- eraseText
+- inputText: "https://en.wikipedia.org/wiki/Sea_turtle"
+- hideKeyboard
+- tapOn: "Fetch page"
+- extendedWaitUntil:
+    visible: "Keep on this device"
+    timeout: 120000
+- waitForAnimationToEnd
+- takeScreenshot: 03-add-preview
+- tapOn: "Discard"
+- tapOn: "Back to shelf"
+
+# 4. Listen tab
+- tapOn: "Lighthouse.*"
+- extendedWaitUntil:
+    visible: "Listen"
+    timeout: 15000
+- tapOn: "Listen"
+- tapOn: "Play"
+- extendedWaitUntil:
+    visible: "Pause"
+    timeout: 5000
+    optional: true
+- takeScreenshot: 04-listen
+- tapOn:
+    text: "Pause"
+    optional: true
+
+# 5. Study tab with one answer
+- tapOn: "Study"
+- tapOn: "Create summary and quiz"
+- extendedWaitUntil:
+    visible: "Rebuild summary and quiz"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Question 1 of \\d+"
+    direction: DOWN
+    timeout: 20000
+    centerElement: true
+- tapOn:
+    text: "[^?]*[^?]"
+    below: "Question 1 of \\d+"
+- waitForAnimationToEnd
+- takeScreenshot: 05-study
