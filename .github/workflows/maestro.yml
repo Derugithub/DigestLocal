@@ -59,8 +59,7 @@ jobs:
             adb shell wm size 1080x1920
             adb shell wm density 420
             adb install -r app-release.apk
-            mkdir -p maestro-output
-            cd maestro-output && maestro test ../.maestro/
+            maestro test .maestro/ --test-output-dir=maestro-output
 
       - name: Upload screenshots and logs
         if: always()
