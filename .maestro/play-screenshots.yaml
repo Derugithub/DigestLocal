@@ -29,7 +29,7 @@ name: Play screenshots
           visible: ".*Type a link here\\."
           timeout: 5000
           optional: true
-      - tapOn: "Article URL"
+      - tapOn: "https://"
       - eraseText
       - inputText: ${output.urls[output.i]}
       - hideKeyboard
@@ -79,7 +79,7 @@ name: Play screenshots
     visible: ".*Type a link here\\."
     timeout: 5000
     optional: true
-- tapOn: "Article URL"
+- tapOn: "https://"
 - eraseText
 - inputText: "https://en.wikipedia.org/wiki/Sea_turtle"
 - hideKeyboard
