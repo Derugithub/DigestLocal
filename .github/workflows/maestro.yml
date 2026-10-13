@@ -6,7 +6,7 @@ on:
 jobs:
   maestro:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     env:
       ADS_MODE: test
     steps:
@@ -54,10 +54,10 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          profile: pixel
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -skin 1080x1920
           script: |
-            adb shell wm size 1080x1920
-            adb shell wm density 420
+            adb shell wm size
             adb install -r app-release.apk
             maestro test .maestro/ --test-output-dir=maestro-output
 
