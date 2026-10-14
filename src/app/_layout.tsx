@@ -20,6 +20,7 @@ import { IncomingShare } from '@/components/incoming-share';
 import { AdsProvider } from '@/lib/ads/ads-provider';
 import { DatabaseProvider } from '@/lib/database';
 import { EntitlementProvider } from '@/lib/entitlement';
+import { noteAppOpened } from '@/lib/review-prompt';
 import { isThemePreference, ThemePreferenceProvider, THEME_KEY, useAppTheme } from '@/theme/preferences';
 import type { ThemePreference } from '@/theme/palette';
 import Storage from 'expo-sqlite/kv-store';
@@ -36,6 +37,10 @@ export default function RootLayout() {
   });
   const [preference, setPreference] = useState<ThemePreference>('system');
   const [preferenceReady, setPreferenceReady] = useState(false);
+
+  useEffect(() => {
+    void noteAppOpened();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
