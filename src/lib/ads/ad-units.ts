@@ -9,10 +9,10 @@ export type BannerSizeName = 'LARGE_ANCHORED_ADAPTIVE_BANNER' | 'INLINE_ADAPTIVE
  * Live mode treats a remaining placeholder as "ads off" and does not crash.
  */
 export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = {
-  shelf_banner: 'ca-app-pub-XXXXXXXX/1111111111',
-  article_end_banner: 'ca-app-pub-XXXXXXXX/2222222222',
-  save_interstitial: 'ca-app-pub-XXXXXXXX/3333333333',
-  study_rewarded: 'ca-app-pub-XXXXXXXX/4444444444',
+  shelf_banner: 'ca-app-pub-4342572133101591/5889882153',
+  article_end_banner: 'ca-app-pub-4342572133101591/7526222443',
+  save_interstitial: 'ca-app-pub-4342572133101591/3978034680',
+  study_rewarded: 'ca-app-pub-4342572133101591/3387841891',
 };
 
 /**
