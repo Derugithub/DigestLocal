@@ -58,7 +58,11 @@ name: Play screenshots
 - takeScreenshot: 01-shelf
 
 # 2. Reader with a saved image
-- tapOn: "Lighthouse.*"
+- scrollUntilVisible:
+    element:
+      text: "Lighthouse.*"
+    direction: DOWN
+    timeout: 20000
 - extendedWaitUntil:
     visible: "On this device"
     timeout: 15000
@@ -100,7 +104,11 @@ name: Play screenshots
 - tapOn: "Back to shelf"
 
 # 4. Listen tab
-- tapOn: "Lighthouse.*"
+- scrollUntilVisible:
+    element:
+      text: "Lighthouse.*"
+    direction: DOWN
+    timeout: 20000
 - extendedWaitUntil:
     visible: "Listen"
     timeout: 15000
