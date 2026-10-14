@@ -63,6 +63,7 @@ name: Play screenshots
       text: "Lighthouse.*"
     direction: DOWN
     timeout: 20000
+- tapOn: "Lighthouse.*"
 - extendedWaitUntil:
     visible: "On this device"
     timeout: 15000
@@ -109,6 +110,7 @@ name: Play screenshots
       text: "Lighthouse.*"
     direction: DOWN
     timeout: 20000
+- tapOn: "Lighthouse.*"
 - extendedWaitUntil:
     visible: "Listen"
     timeout: 15000
