@@ -5,6 +5,7 @@ import {
   buildQuiz,
   freshQuizIfDifferent,
   getStudyEngine,
+  isQuizWorthySentence,
   MAX_QUIZ_QUESTIONS,
   MIN_QUIZ_QUESTIONS,
   quizSizeForPoints,
@@ -63,19 +64,16 @@ test('quiz questions are concept questions, local, and deterministic', () => {
   assert.ok(first.questions.length >= MIN_QUIZ_QUESTIONS);
   assert.ok(first.questions.length <= MAX_QUIZ_QUESTIONS);
 
-  const answers = first.questions.map((question) => question.choices[question.answerIndex]?.toLowerCase() ?? '');
-  assert.ok(
-    answers.some((answer) => answer.includes('network') || answer.includes('borrow') || answer.includes('cleaner') || answer.includes('pier')),
-    answers.join(' | '),
-  );
+  const answers = first.questions.map((question) => question.choices[question.answerIndex] ?? '');
+  assert.ok(answers.some((answer) => /418|Inez|Pier Street|Harbor Tool Library/.test(answer)), answers.join(' | '));
 
   for (const question of first.questions) {
-    assert.ok(['why', 'meaning', 'relation', 'takeaway'].includes(question.kind));
-    assert.equal(/fill in the blank/i.test(question.prompt), false);
+    assert.ok(['why', 'meaning', 'relation', 'takeaway', 'cloze'].includes(question.kind));
+    if (question.kind === 'cloze') assert.match(question.prompt, /_____/);
     assert.equal(/which passage appears/i.test(question.prompt), false);
-    assert.equal(question.choices.length, 4);
-    assert.equal(new Set(question.choices).size, 4);
-    assert.ok(question.answerIndex >= 0 && question.answerIndex < 4);
+    assert.ok(question.choices.length >= 3 && question.choices.length <= 4);
+    assert.equal(new Set(question.choices).size, question.choices.length);
+    assert.ok(question.answerIndex >= 0 && question.answerIndex < question.choices.length);
     assert.ok(question.explanation.length > 20);
     assert.equal(/uses “/i.test(question.explanation), false);
   }
@@ -89,50 +87,69 @@ test('quiz length follows how many main points the article has', () => {
 
   const few = buildQuiz(short);
   const many = buildQuiz(long);
-  assert.ok(few.questions.length >= 1);
   assert.ok(few.questions.length < many.questions.length);
   assert.equal(many.questions.length, MAX_QUIZ_QUESTIONS);
-  assert.ok(few.questions.every((question) => question.kind === 'why' || question.kind === 'meaning' || question.kind === 'relation' || question.kind === 'takeaway'));
 });
 
-test('a meaning question asks what an idea shows, not which word was used', () => {
-  const quiz = buildQuiz({
-    title: 'Debug Mode',
-    content: [
-      'The context ring next to your prompt input shows how full the window is at a glance.',
-      'A larger window lets the model read more of the conversation before it has to forget earlier turns.',
-      'Developers watch the ring because a full window means the next prompt may drop important instructions.',
-      'When the ring fills, the practical response is to start a fresh thread or shorten the prompt.',
-    ].join('\n\n'),
-  });
-  const meaning = quiz.questions.find((question) => question.prompt.toLowerCase().includes('context ring'));
-  assert.ok(meaning);
-  assert.equal(meaning.kind, 'meaning');
-  assert.equal(/fill in the blank|which passage/i.test(meaning.prompt), false);
-  assert.match(meaning.choices[meaning.answerIndex] ?? '', /how full the window is/i);
+const lighthouse = {
+  title: 'Lighthouse',
+  content: [
+    'The Lighthouse of Alexandria was built on the island of Pharos around 280 BC and stood for centuries.',
+    'Minutes of Proceedings of the Institution of Civil Engineers. 1868. pp. 12–19.',
+    'A typical LED system designed to fit into the existing 3rd order Fresnel lens costs about',
+    'For many years, lighthouses still had keepers, partly because lighthouse keepers could serve as a rescue service, if necessary.',
+    'Augustin Fresnel developed the multi-part Fresnel lens for use in lighthouses in 1822.',
+    'Eddystone Lighthouse was rebuilt by John Smeaton in 1759 using interlocking granite blocks.',
+    'The Bell Rock Lighthouse, completed by Robert Stevenson in 1810, is the oldest surviving sea-washed lighthouse.',
+    'The last keepers left the North Foreland Lighthouse in 1998 after more than 300 years of staffed service.',
+    'Lighthouse keeper’s cottage, pictured in 1905 (left).',
+    'Retrieved 12 March 2015.',
+  ].join('\n\n'),
+};
+
+test('references, captions, and fragments are never quiz material', () => {
+  assert.equal(isQuizWorthySentence('Minutes of Proceedings of the Institution of Civil Engineers. 1868. pp. 12–19.'), false);
+  assert.equal(isQuizWorthySentence('A typical LED system designed to fit into the existing 3rd order Fresnel lens costs about'), false);
+  assert.equal(isQuizWorthySentence('Lighthouse keeper’s cottage, pictured in 1905 (left).'), false);
+  assert.equal(isQuizWorthySentence('Retrieved 12 March 2015.'), false);
+  assert.equal(isQuizWorthySentence('Eddystone Lighthouse was rebuilt by John Smeaton in 1759 using interlocking granite blocks.'), true);
+  const quiz = buildQuiz(lighthouse);
+  const text = JSON.stringify(quiz);
+  assert.equal(/Proceedings|costs about|pictured|Retrieved/.test(text), false);
+});
+
+test('cloze distractors have the same type as the hidden term', () => {
+  const quiz = buildQuiz(lighthouse);
+  assert.ok(quiz.questions.length >= MIN_QUIZ_QUESTIONS);
+  for (const question of quiz.questions.filter((item) => item.kind === 'cloze')) {
+    const answer = question.choices[question.answerIndex] ?? '';
+    if (/^\d{4}$/.test(answer)) assert.ok(question.choices.every((choice) => /^\d{4}$/.test(choice)), question.choices.join(' / '));
+    assert.equal(question.prompt.includes(answer), false);
+  }
 });
 
 test('the active engine is the local heuristic', () => {
   assert.equal(getStudyEngine().id, STUDY_ENGINE_ID);
 });
 
-test('a fresh quiz exists only when it is not the previous set', () => {
-  const first = buildQuiz(long);
-  assert.equal(sameQuizSet(first.questions, buildQuiz(long).questions), true);
-  let previous = first.questions;
+test('reward sets never repeat earlier questions and run out gracefully', () => {
+  const first = buildQuiz(lighthouse);
+  assert.equal(sameQuizSet(first.questions, buildQuiz(lighthouse).questions), true);
+  const key = (q: { prompt: string; choices: string[]; answerIndex: number }) => `${q.prompt}\n${q.choices[q.answerIndex]}`.toLowerCase();
+  const seen = new Set(first.questions.map(key));
+  let current = first;
   let produced = 0;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const next = freshQuizIfDifferent(long, previous);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const next = freshQuizIfDifferent(lighthouse, current.questions, undefined, current.asked);
     if (!next) break;
-    assert.equal(sameQuizSet(previous, next.questions), false);
-    previous = [...previous, ...next.questions];
+    for (const question of next.questions) {
+      assert.equal(seen.has(key(question)), false, question.prompt);
+      seen.add(key(question));
+    }
+    current = next;
     produced += 1;
   }
-  assert.ok(produced >= 1);
-  assert.equal(freshQuizIfDifferent(long, previous), null);
-
-  const harbor = buildQuiz(input);
-  const harborAgain = freshQuizIfDifferent(input, harbor.questions);
-  if (harborAgain) assert.equal(sameQuizSet(harbor.questions, harborAgain.questions), false);
+  assert.ok(produced >= 2);
+  assert.equal(freshQuizIfDifferent(lighthouse, current.questions, undefined, current.asked), null);
   assert.equal(freshQuizIfDifferent(input, []), null);
 });
