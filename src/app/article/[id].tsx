@@ -10,7 +10,9 @@ import { StudyPanel } from '@/components/study-panel';
 import { AppText, Button, IconButton, LoadingState, Screen, Segmented } from '@/components/ui';
 import { deleteArticleImages } from '@/lib/article-images';
 import { deleteArticle, getArticle } from '@/lib/articles';
+import { useAds } from '@/lib/ads/ads-context';
 import { useDatabase } from '@/lib/database';
+import { maybeRequestReviewAfterRead } from '@/lib/review-prompt';
 import type { Article } from '@/lib/types';
 import { formatSavedDate, readingMinutes } from '@/lib/text';
 import { useAppTheme } from '@/theme/preferences';
@@ -40,6 +42,17 @@ export default function ArticleScreen() {
   const viewportHeight = useRef(0);
   const contentHeight = useRef(0);
   const offsetY = useRef(0);
+  const ads = useAds();
+  // Reader engagement for the review prompt: time on the Read tab and furthest scroll.
+  const readMs = useRef(0);
+  const readSince = useRef<number | null>(null);
+  const maxProgress = useRef(0);
+  const removed = useRef(false);
+  const reviewContext = useRef({ sessionCount: ads.sessionCount, lastFullscreenAt: ads.lastFullscreenAt });
+  useEffect(() => {
+    reviewContext.current = { sessionCount: ads.sessionCount, lastFullscreenAt: ads.lastFullscreenAt };
+  }, [ads.lastFullscreenAt, ads.sessionCount]);
+  const reading = mode === 'read' && article != null;
 
   const considerEndBanner = (offsetY: number) => {
     const viewHeight = viewportHeight.current;
@@ -68,8 +81,30 @@ export default function ArticleScreen() {
     };
   }, [db, id]);
 
+  useEffect(() => {
+    if (!reading) return;
+    readSince.current = Date.now();
+    return () => {
+      if (readSince.current != null) readMs.current += Date.now() - readSince.current;
+      readSince.current = null;
+    };
+  }, [reading]);
+
+  useEffect(() => {
+    // Runs when the reader closes (back button, gesture, or hardware back), after the Read-tab timer above stops.
+    return () => {
+      if (removed.current) return;
+      void maybeRequestReviewAfterRead({
+        ...reviewContext.current,
+        readMs: readMs.current,
+        maxProgress: maxProgress.current,
+      });
+    };
+  }, []);
+
   const remove = async () => {
     if (!db || !article) return;
+    removed.current = true;
     await deleteArticle(db, article.id);
     deleteArticleImages(article.id);
     router.replace('/');
@@ -133,7 +168,9 @@ export default function ArticleScreen() {
             contentHeight.current = contentSize.height;
             offsetY.current = contentOffset.y;
             const max = contentSize.height - layoutMeasurement.height;
-            setProgress(max > 0 ? Math.min(1, Math.max(0, contentOffset.y / max)) : 0);
+            const nextProgress = max > 0 ? Math.min(1, Math.max(0, contentOffset.y / max)) : 0;
+            if (nextProgress > maxProgress.current) maxProgress.current = nextProgress;
+            setProgress(nextProgress);
             considerEndBanner(contentOffset.y);
           }}>
           <AppText variant="label" color={colors.accent}>
