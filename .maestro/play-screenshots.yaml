@@ -36,13 +36,12 @@ name: Play screenshots
             text: "Fetch page"
           direction: DOWN
           timeout: 10000
-      - retry:
-          maxRetries: 2
-          commands:
-            - tapOn: "Fetch page"
-            - extendedWaitUntil:
-                visible: "Keep on this device"
-                timeout: 120000
+      - tapOn: "Fetch page"
+      - scrollUntilVisible:
+          element:
+            text: "Keep on this device"
+          direction: DOWN
+          timeout: 120000
       - tapOn: "Keep on this device"
       - extendedWaitUntil:
           visible: "Listen"
@@ -90,8 +89,10 @@ name: Play screenshots
     direction: DOWN
     timeout: 10000
 - tapOn: "Fetch page"
-- extendedWaitUntil:
-    visible: "Keep on this device"
+- scrollUntilVisible:
+    element:
+      text: "Keep on this device"
+    direction: DOWN
     timeout: 120000
 - waitForAnimationToEnd
 - takeScreenshot: 03-add-preview
