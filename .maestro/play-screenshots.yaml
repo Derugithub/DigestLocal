@@ -125,7 +125,7 @@ name: Play screenshots
     text: "Pause"
     optional: true
 
-# 5. Study tab with one answer
+# 5. Study tab with the question and answers
 - tapOn: "Study"
 - tapOn: "Create summary and quiz"
 - scrollUntilVisible:
@@ -133,9 +133,8 @@ name: Play screenshots
       text: "Question 1 of \\d+"
     direction: DOWN
     timeout: 120000
-    centerElement: true
-- tapOn:
-    text: "[^?]*[^?]"
-    below: "Question 1 of \\d+"
+- swipe:
+    start: "50%, 75%"
+    end: "50%, 35%"
 - waitForAnimationToEnd
 - takeScreenshot: 05-study
