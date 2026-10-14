@@ -1,5 +1,13 @@
+# Raw Google Play screenshots for DigestLocal.
+# Independent of smoke.yaml: starts from clearState and does ONE cold launch.
+# Why one launch: ads-provider.tsx records a 'launch' on every cold start
+# (ad-policy.ts nextSessionState -> sessionCount + 1), and banners / ad SDK init
+# need sessionCount >= minSessionForAds (2, ad-config.ts). Session 1 = no ads.
+# Do NOT add stopApp / a second launchApp to this flow.
 appId: app.digestlocal.mobile
 name: Play screenshots
+tags:
+  - play-screenshots
 ---
 - launchApp:
     clearState: true
@@ -8,7 +16,7 @@ name: Play screenshots
     visible: "The shelf is empty."
     timeout: 60000
 
-# 1. Save six articles
+# ---------- 1. Save six Wikipedia articles through the add screen ----------
 - evalScript: >-
     ${output.urls = [
       'https://en.wikipedia.org/wiki/Lighthouse',
@@ -18,6 +26,7 @@ name: Play screenshots
       'https://en.wikipedia.org/wiki/Bicycle',
       'https://en.wikipedia.org/wiki/Great_Barrier_Reef'
     ], output.i = 0}
+
 - repeat:
     times: 6
     commands:
@@ -25,17 +34,16 @@ name: Play screenshots
       - extendedWaitUntil:
           visible: "Save a page"
           timeout: 15000
+      # Clipboard is empty on the emulator, so the paste notice appears.
+      # Wait for it so the late stagePaste() cannot wipe what we type.
       - extendedWaitUntil:
           visible: ".*Type a link here\\."
           timeout: 5000
           optional: true
+      - tapOn: "Article URL"
       - eraseText
       - inputText: ${output.urls[output.i]}
-      - scrollUntilVisible:
-          element:
-            text: "Fetch page"
-          direction: DOWN
-          timeout: 10000
+      - hideKeyboard
       - retry:
           maxRetries: 2
           commands:
@@ -44,6 +52,7 @@ name: Play screenshots
                 visible: "Keep on this device"
                 timeout: 120000
       - tapOn: "Keep on this device"
+      # save() -> router.replace('/article/<id>') (no interstitial in session 1)
       - extendedWaitUntil:
           visible: "Listen"
           timeout: 30000
@@ -52,28 +61,33 @@ name: Play screenshots
           visible: "The shelf"
           timeout: 15000
       - evalScript: ${output.i = output.i + 1}
+
 - extendedWaitUntil:
     visible: "6 saved · offline"
     timeout: 15000
 - waitForAnimationToEnd
 - takeScreenshot: 01-shelf
 
-# 2. Reader with a saved image
+# ---------- 2. Reader with an in-content image + caption ----------
 - tapOn: "Lighthouse.*"
 - extendedWaitUntil:
     visible: "On this device"
     timeout: 15000
 - scrollUntilVisible:
     element:
-      text: "Article image"
+      text: "Article image"      # expo-image accessibilityLabel when alt is empty
     direction: DOWN
     timeout: 30000
     centerElement: true
-- waitForAnimationToEnd
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: 02-reader
 - tapOn: "Back to shelf"
+- extendedWaitUntil:
+    visible: "The shelf"
+    timeout: 15000
 
-# 3. Add screen with preview
+# ---------- 3. Add screen with preview card (not saved) ----------
 - tapOn: "Paste a URL"
 - extendedWaitUntil:
     visible: "Save a page"
@@ -82,29 +96,33 @@ name: Play screenshots
     visible: ".*Type a link here\\."
     timeout: 5000
     optional: true
+- tapOn: "Article URL"
 - eraseText
 - inputText: "https://en.wikipedia.org/wiki/Sea_turtle"
-- scrollUntilVisible:
-    element:
-      text: "Fetch page"
-    direction: DOWN
-    timeout: 10000
-- tapOn: "Fetch page"
-- extendedWaitUntil:
-    visible: "Keep on this device"
-    timeout: 120000
+- hideKeyboard
+- retry:
+    maxRetries: 2
+    commands:
+      - tapOn: "Fetch page"
+      - extendedWaitUntil:
+          visible: "Keep on this device"
+          timeout: 120000
 - waitForAnimationToEnd
 - takeScreenshot: 03-add-preview
 - tapOn: "Discard"
 - tapOn: "Back to shelf"
+- extendedWaitUntil:
+    visible: "The shelf"
+    timeout: 15000
 
-# 4. Listen tab
+# ---------- 4. Listen tab while playing ----------
 - tapOn: "Lighthouse.*"
 - extendedWaitUntil:
     visible: "Listen"
     timeout: 15000
 - tapOn: "Listen"
 - tapOn: "Play"
+# status flips to 'playing' synchronously; onError flips it back if no TTS voice.
 - extendedWaitUntil:
     visible: "Pause"
     timeout: 5000
@@ -114,20 +132,136 @@ name: Play screenshots
     text: "Pause"
     optional: true
 
-# 5. Study tab with one answer
+# ---------- 5. Study tab, Q1 answered correctly ----------
 - tapOn: "Study"
 - tapOn: "Create summary and quiz"
 - extendedWaitUntil:
     visible: "Rebuild summary and quiz"
     timeout: 60000
+
+# Bring Question 1 and its choices on screen.
 - scrollUntilVisible:
     element:
       text: "Question 1 of \\d+"
     direction: DOWN
     timeout: 20000
     centerElement: true
+- swipe:
+    start: 50%, 70%
+    end: 50%, 40%
+    duration: 600
+- waitForAnimationToEnd
+
+# Collect Q1 choice texts. Choices are Pressables with accessibilityLabel={choice}
+# below the "Question 1 of N" label; the prompt always ends with "?" so it is excluded
+# by the regex. Mode-bar labels and duplicates are filtered in JS.
+- evalScript: ${output.choices = [], output.j = 0}
+- repeat:
+    times: 12
+    commands:
+      - runFlow:
+          when:
+            visible:
+              text: "[^?]*[^?]"
+              below: "Question 1 of \\d+"
+              index: ${output.j}
+          commands:
+            - copyTextFrom:
+                text: "[^?]*[^?]"
+                below: "Question 1 of \\d+"
+                index: ${output.j}
+            - evalScript: >-
+                ${(t => (t && ['Read','Listen','Study','Next question','See score'].indexOf(t) < 0
+                  && output.choices.indexOf(t) < 0) ? output.choices.push(t) : 0)((maestro.copiedText || '').trim())}
+      - evalScript: ${output.j = output.j + 1}
+- evalScript: >-
+    ${output.esc = output.choices.map(t => t.split('').map(c =>
+      ('.*+?^()|[]\\/'.indexOf(c) >= 0 || c.charCodeAt(0) == 36 || c.charCodeAt(0) == 123 || c.charCodeAt(0) == 125)
+      ? '\\' + c : c).join('')), output.scores = [], output.k = 0}
+- assertTrue: ${output.choices.length >= 3 && output.choices.length <= 4}
+
+# For each Q1 choice: answer Q1 with it, answer every later question with its first
+# choice, read the score. Only Q1 differs between runs, so the highest score marks
+# the correct Q1 choice (Choice gives only colour feedback; no text/testID says right/wrong).
+- repeat:
+    times: ${output.choices.length}
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: "Question 1 of \\d+"
+          direction: UP
+          timeout: 20000
+          centerElement: true
+      - swipe:
+          start: 50%, 70%
+          end: 50%, 40%
+          duration: 600
+      - tapOn:
+          text: ${output.esc[output.k]}
+      - evalScript: ${output.done = false}
+      - repeat:
+          while:
+            true: ${!output.done}
+          commands:
+            - scrollUntilVisible:
+                element:
+                  text: "Next question|See score"
+                direction: DOWN
+                timeout: 15000
+            - runFlow:
+                when:
+                  visible: "See score"
+                commands:
+                  - evalScript: ${output.done = true}
+            - runFlow:
+                when:
+                  true: ${!output.done}
+                commands:
+                  - tapOn: "Next question"
+                  - scrollUntilVisible:
+                      element:
+                        text: "Question \\d+ of \\d+"
+                      direction: UP
+                      timeout: 15000
+                      centerElement: true
+                  - swipe:
+                      start: 50%, 70%
+                      end: 50%, 40%
+                      duration: 600
+                  - tapOn:
+                      text: "[^?]*[^?]"
+                      below: "Question \\d+ of \\d+"
+      - tapOn: "See score"
+      - copyTextFrom:
+          text: "\\d+ of \\d+"
+      - evalScript: ${output.scores.push(parseInt(maestro.copiedText, 10)), output.k = output.k + 1}
+      - scrollUntilVisible:
+          element:
+            text: "Try the quiz again"
+          direction: DOWN
+          timeout: 15000
+      - tapOn: "Try the quiz again"
+
+- evalScript: ${output.best = output.scores.indexOf(Math.max.apply(null, output.scores))}
+- evalScript: ${console.log('Q1 choices=' + JSON.stringify(output.choices) + ' scores=' + JSON.stringify(output.scores) + ' best=' + output.best)}
+
+# Final: answer Q1 with the winning choice and capture.
+- scrollUntilVisible:
+    element:
+      text: "Question 1 of \\d+"
+    direction: UP
+    timeout: 20000
+    centerElement: true
+- swipe:
+    start: 50%, 70%
+    end: 50%, 40%
+    duration: 600
 - tapOn:
-    text: "[^?]*[^?]"
-    below: "Question 1 of \\d+"
+    text: ${output.esc[output.best]}
+- scrollUntilVisible:
+    element:
+      text: "Next question|See score"
+    direction: DOWN
+    timeout: 15000
 - waitForAnimationToEnd
 - takeScreenshot: 05-study
