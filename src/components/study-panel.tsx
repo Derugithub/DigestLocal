@@ -47,7 +47,12 @@ export function StudyPanel({
   const question = activeQuestions[cursor];
   const freshQuiz = useMemo(() => {
     if (!article.quiz || article.quiz.questions.length === 0) return null;
-    return freshQuizIfDifferent({ title: article.title, content: article.content }, article.quiz.questions);
+    return freshQuizIfDifferent(
+      { title: article.title, content: article.content },
+      article.quiz.questions,
+      new Date(),
+      article.quiz.asked,
+    );
   }, [article.content, article.quiz, article.title]);
   const offerPlan = planQuizOffer({
     questionCount: questions.length,
