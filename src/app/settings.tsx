@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { PaywallSheet } from '@/components/paywall-sheet';
 import { AppText, Button, IconButton, Note, Screen, Segmented } from '@/components/ui';
@@ -12,6 +12,7 @@ import { AD_PLACEMENTS } from '@/lib/ads/ad-units';
 import { useAds, type AdsContextValue } from '@/lib/ads/ads-context';
 import { isTestAdsMode } from '@/lib/ads/ads-mode';
 import { useEntitlement } from '@/lib/entitlement';
+import { openStoreListing } from '@/lib/review-prompt';
 import { useAppTheme } from '@/theme/preferences';
 import type { ThemePreference } from '@/theme/palette';
 
@@ -108,6 +109,9 @@ export default function SettingsScreen() {
           <Note kicker="Network & privacy" body={NETWORK_NOTE} />
           <Button label="Privacy policy" variant="secondary" onPress={openPrivacyPolicy} />
           <Button label={`Email ${SUPPORT_EMAIL}`} variant="secondary" onPress={openSupport} />
+          {Platform.OS === 'android' ? (
+            <Button label="Rate DigestLocal" variant="secondary" onPress={() => void openStoreListing()} />
+          ) : null}
           {showPrivacyChoices ? (
             <Button
               label={ads.privacyOptionsRequired ? 'Privacy options' : 'Ad privacy choices'}
