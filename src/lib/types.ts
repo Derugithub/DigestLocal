@@ -1,4 +1,4 @@
-export type QuizKind = 'why' | 'meaning' | 'relation' | 'takeaway';
+export type QuizKind = 'why' | 'meaning' | 'relation' | 'takeaway' | 'cloze';
 
 export type QuizQuestion = {
   id: string;
@@ -13,6 +13,8 @@ export type Quiz = {
   engine: string;
   generatedAt: string;
   questions: QuizQuestion[];
+  /** quizQuestionKey(prompt, answer) of every question shown for this article, so reward sets never repeat. */
+  asked?: string[];
   note?: string;
 };
 
