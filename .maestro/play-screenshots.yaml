@@ -128,14 +128,11 @@ name: Play screenshots
 # 5. Study tab with one answer
 - tapOn: "Study"
 - tapOn: "Create summary and quiz"
-- extendedWaitUntil:
-    visible: "Rebuild summary and quiz"
-    timeout: 60000
 - scrollUntilVisible:
     element:
       text: "Question 1 of \\d+"
     direction: DOWN
-    timeout: 20000
+    timeout: 120000
     centerElement: true
 - tapOn:
     text: "[^?]*[^?]"
