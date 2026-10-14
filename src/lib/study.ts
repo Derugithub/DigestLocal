@@ -3,15 +3,17 @@ import type { Quiz, QuizKind, QuizQuestion, StudyInput } from '@/lib/types';
 /**
  * On-device study engine.
  *
- * `heuristic-v2` scores sentences locally and writes an extractive summary
- * plus concept questions: why something matters, what an idea means, how
- * ideas relate, and which statements are main points. It does not call a
- * language model, so it can only ask about claims the saved text actually
- * makes. Replace `getStudyEngine()` with another `StudyEngine` to plug in
- * an on-device model. Callers persist the returned summary string and quiz
- * JSON with the article.
+ * `heuristic-v3` scores sentences locally and writes an extractive summary
+ * plus a multiple-choice quiz. Questions are mostly cloze questions: a key
+ * term (year, number, or proper name) is hidden in a real sentence from the
+ * article, and the wrong choices are other terms of the same type taken from
+ * the same article. Reference lists, citations, captions, and fragments are
+ * filtered out before anything is scored. It does not call a language model.
+ * Replace `getStudyEngine()` with another `StudyEngine` to plug in an
+ * on-device model. Callers persist the returned summary string and quiz JSON
+ * with the article.
  */
-export const STUDY_ENGINE_ID = 'heuristic-v2';
+export const STUDY_ENGINE_ID = 'heuristic-v3';
 export const MIN_QUIZ_QUESTIONS = 2;
 export const MAX_QUIZ_QUESTIONS = 8;
 
@@ -27,18 +29,81 @@ const STOPWORDS = new Set(
   ),
 );
 
+/** Capitalized words that are never a useful "name" answer on their own. */
+const NAME_STOPWORDS = new Set(
+  `The A An And Or But If Then When While At From By For With Of On In To Into Over After Before About As Is Are Was Were It This That These Those I You He She We They His Her Their Its Not No So Than Also However Therefore Although Because Since During Many Most Some Each Other Such Here There What Which Who Why How Where One Two Three Four Five Six Seven Eight Nine Ten First Second Third Today Yesterday Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August September October November December Mr Mrs Ms Dr St Figure Fig Table Chapter Section Page`.split(
+    /\s+/,
+  ),
+);
+
+const MIN_SENTENCE_CHARS = 40;
+const MAX_SENTENCE_CHARS = 300;
+const MIN_SENTENCE_WORDS = 7;
+const MAX_SENTENCE_WORDS = 55;
+
 type ScoredSentence = {
   index: number;
   text: string;
   score: number;
 };
 
+/** Remove inline citation markers such as [12], [a], [citation needed], and stray carets. */
+function stripCitations(text: string): string {
+  return text
+    .replace(/\[(?:\d+|[a-z]|citation needed|note \d+|nb \d+|clarification needed|when\?|who\?|by whom\?)\]/gi, '')
+    .replace(/\s+\^\s*/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const REFERENCE_PATTERNS: RegExp[] = [
+  /https?:\/\/|www\.|\.(?:com|org|net|gov|edu)\b/i,
+  /\bdoi\b|\bisbn\b|\bissn\b|\bpmid\b|\barxiv\b|\boclc\b/i,
+  /\bretrieved\b|\barchived from\b|\baccessed (?:on )?\d|\boriginal on\b/i,
+  /\bproceedings of\b|\bminutes of proceedings\b|\bjournal of\b|\btransactions of\b|\bvol\.\s*\d|\bpp?\.\s*\d|\bed(?:s|ited by)?\.\s/i,
+  /\bet al\.?/i,
+  /\((?:pdf|in [a-z]+|\d{4}[a-z]?)\)\s*[.,]?$/i,
+  /^\s*(?:\^|↑|\*|•|·|\d+\.\s|\[\d+\])/,
+  /^\s*(?:figure|fig\.|table|image|photo|picture|map|chart|diagram|source|credit|caption|see also|main article|further reading|external links|references|notes|bibliography)\b/i,
+  /\b(?:pictured|shown here|seen here|above|below|left|right)\)?\s*\.?$/i,
+  /\(\s*(?:left|right|top|bottom|center|centre|pictured)\s*\)/i,
+  /\bclick here\b|\bsubscribe\b|\bsign up\b|\bcookie\b|\badvertisement\b|\ball rights reserved\b|©/i,
+];
+
+/** True when a sentence reads like body prose rather than a reference, caption, heading, or fragment. */
+export function isQuizWorthySentence(sentence: string): boolean {
+  const text = sentence.trim();
+  if (text.length < MIN_SENTENCE_CHARS || text.length > MAX_SENTENCE_CHARS) return false;
+  const words = text.split(/\s+/);
+  if (words.length < MIN_SENTENCE_WORDS || words.length > MAX_SENTENCE_WORDS) return false;
+  // Body prose ends with terminal punctuation; captions, headings, and list items often do not.
+  if (!/[.!?]["”’')\]]?$/.test(text)) return false;
+  // Body prose starts with a capital letter, quote, or digit.
+  if (!/^["“‘'(]?[A-Z0-9]/.test(text)) return false;
+  if (REFERENCE_PATTERNS.some((pattern) => pattern.test(text))) return false;
+  // Title-cased runs ("Minutes of Proceedings of the Institution of Civil Engineers") are references or headings.
+  const letters = words.filter((word) => /^[A-Za-z]/.test(word));
+  const capitalized = letters.filter((word) => /^[A-Z]/.test(word)).length;
+  if (letters.length > 0 && capitalized / letters.length > 0.6) return false;
+  // Too many digits or punctuation usually means a table row, citation, or price list.
+  const digits = (text.match(/\d/g) ?? []).length;
+  if (digits / text.length > 0.2) return false;
+  const separators = (text.match(/[;|•·–—]/g) ?? []).length;
+  if (separators > 4) return false;
+  // A sentence that trails off ("costs about") is a truncated fragment.
+  if (/\b(?:about|around|approximately|of|the|a|an|to|and|or|for|with)\s*[.!?]?$/i.test(text)) return false;
+  return true;
+}
+
 function splitSentences(content: string): string[] {
   return content
     .split(/\n+/)
-    .flatMap((chunk) => chunk.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+(?=[A-Z“"'])/))
+    .flatMap((chunk) =>
+      stripCitations(chunk.replace(/\s+/g, ' ').trim()).split(/(?<=[.!?]["”’)]?)\s+(?=["“‘(]?[A-Z0-9])/),
+    )
     .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length >= 40);
+    .filter(isQuizWorthySentence);
 }
 
 function contentTokens(text: string): string[] {
@@ -61,7 +126,7 @@ function scoreSentences(sentences: string[], title: string): ScoredSentence[] {
     const freqScore = tokens.reduce((sum, token) => sum + (frequency.get(token) ?? 0), 0) / Math.sqrt(tokens.length);
     const position = index === 0 ? 2.4 : index === 1 ? 1.2 : index === 2 ? 0.45 : 0;
     const titleOverlap = tokens.filter((token) => titleTokens.has(token)).length * 0.85;
-    const lengthAdjust = text.length < 55 || text.length > 320 ? -0.5 : 0.35;
+    const lengthAdjust = text.length < 60 || text.length > 260 ? -0.5 : 0.35;
     return { index, text, score: freqScore + position + titleOverlap + lengthAdjust };
   });
 }
@@ -96,13 +161,6 @@ function shuffle<T>(items: T[], random: () => number): T[] {
   return copy;
 }
 
-function clip(sentence: string, max = 180): string {
-  if (sentence.length <= max) return sentence;
-  const slice = sentence.slice(0, max);
-  const lastSpace = slice.lastIndexOf(' ');
-  return (lastSpace > 60 ? slice.slice(0, lastSpace) : slice).trim();
-}
-
 function tidy(value: string): string {
   return value.replace(/\s+/g, ' ').replace(/[.?!]+$/, '').trim();
 }
@@ -116,6 +174,8 @@ function asAnswer(value: string): string {
 function lowerFirst(value: string): string {
   const text = tidy(value);
   if (!text) return '';
+  // Keep acronyms and proper names at the start ("NASA said", "Paris is").
+  if (/^[A-Z][A-Z]|^[A-Z][a-z]+\s+[A-Z]/.test(text)) return text;
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
@@ -125,174 +185,235 @@ function sameIdea(a: string, b: string): boolean {
   return left === right || left.includes(right) || right.includes(left);
 }
 
+// ---------------------------------------------------------------------------
+// Key terms: years, numbers, and proper names.
+
+type TermType = 'year' | 'number' | 'name';
+
+type Term = {
+  type: TermType;
+  /** Exactly as it appears in the sentence. */
+  text: string;
+  start: number;
+};
+
+const YEAR_RE = /\b(?:1[0-9]{3}|20[0-9]{2})s?\b/g;
+const NUMBER_RE =
+  /(?:[$€£¥]\s?)?\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b(?:\s?(?:%|percent|million|billion|thousand|km|kilometres|kilometers|miles|metres|meters|feet|kg|tonnes|tons|hours|days|years|people))?|(?:[$€£¥]\s?)?\b\d+(?:\.\d+)?\b(?:\s?(?:%|percent|million|billion|thousand|km|kilometres|kilometers|miles|metres|meters|feet|kg|tonnes|tons|hours|days|years|people))?/g;
+const NAME_RE = /\b[A-Z][a-zA-Z'’.-]+(?:\s+(?:of|de|la|von|van|the|and|du|da|del)?\s*[A-Z][a-zA-Z'’.-]+)*/g;
+
+function isYear(text: string): boolean {
+  const value = Number.parseInt(text, 10);
+  return /^\d{4}s?$/.test(text) && value >= 1000 && value <= new Date().getFullYear() + 5;
+}
+
+function extractTerms(sentence: string): Term[] {
+  const terms: Term[] = [];
+  const taken: [number, number][] = [];
+  const overlaps = (start: number, end: number) => taken.some(([a, b]) => start < b && end > a);
+  const add = (type: TermType, text: string, start: number) => {
+    const end = start + text.length;
+    if (overlaps(start, end)) return;
+    taken.push([start, end]);
+    terms.push({ type, text, start });
+  };
+
+  for (const match of sentence.matchAll(YEAR_RE)) {
+    if (match.index !== undefined && isYear(match[0])) add('year', match[0], match.index);
+  }
+  for (const match of sentence.matchAll(NUMBER_RE)) {
+    if (match.index === undefined) continue;
+    const text = match[0].trim();
+    // Skip tiny bare numbers ("1", "2") that make trivial questions, and lone years already handled.
+    if (/^\d$/.test(text) || isYear(text)) continue;
+    add('number', text, match.index);
+  }
+  for (const match of sentence.matchAll(NAME_RE)) {
+    if (match.index === undefined) continue;
+    let text = match[0].replace(/[.'’-]+$/, '').trim();
+    let start = match.index;
+    // Drop leading function words picked up at a sentence start ("The Harbor Tool Library" -> keep, "In Australia" -> "Australia").
+    const parts = text.split(/\s+/);
+    while (parts.length > 0 && NAME_STOPWORDS.has(parts[0] ?? '')) {
+      const dropped = parts.shift() ?? '';
+      start += sentence.slice(start).indexOf(dropped) + dropped.length;
+      start += sentence.slice(start).length - sentence.slice(start).trimStart().length;
+    }
+    while (parts.length > 0 && /^(?:of|de|la|von|van|the|and|du|da|del)$/.test(parts[parts.length - 1] ?? '')) parts.pop();
+    if (parts.length === 0) continue;
+    text = parts.join(' ');
+    // A single capitalized word at the very start of a sentence is usually just a capitalized common word.
+    if (start === 0 && parts.length === 1) continue;
+    if (text.length < 3 || NAME_STOPWORDS.has(text)) continue;
+    const at = sentence.indexOf(text, Math.max(0, start - 2));
+    if (at < 0) continue;
+    add('name', text, at);
+  }
+  return terms.sort((a, b) => a.start - b.start);
+}
+
+function termKey(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function numberUnit(text: string): string {
+  const prefix = text.match(/^[$€£¥]/)?.[0] ?? '';
+  const suffix = text.replace(/^[$€£¥]?\s?[\d,]+(?:\.\d+)?\s?/, '').toLowerCase();
+  return `${prefix}|${suffix === 'percent' ? '%' : suffix}`;
+}
+
+function blankOut(sentence: string, term: Term): string {
+  return `${sentence.slice(0, term.start)}_____${sentence.slice(term.start + term.text.length)}`.replace(/\s+/g, ' ').trim();
+}
+
+/** Plausible same-type alternatives for a number when the article does not offer enough. */
+function syntheticNumbers(term: Term, random: () => number): string[] {
+  const match = term.text.match(/^([$€£¥]\s?)?([\d,]+(?:\.\d+)?)(.*)$/);
+  if (!match) return [];
+  const prefix = match[1] ?? '';
+  const raw = match[2] ?? '';
+  const suffix = match[3] ?? '';
+  const value = Number.parseFloat(raw.replace(/,/g, ''));
+  if (!Number.isFinite(value)) return [];
+  const decimals = raw.includes('.') ? (raw.split('.')[1] ?? '').length : 0;
+  const commas = raw.includes(',');
+  const format = (n: number) => {
+    const fixed = n.toFixed(decimals);
+    return commas ? Number(fixed).toLocaleString('en-US', { minimumFractionDigits: decimals }) : fixed;
+  };
+  const factors = shuffle([0.5, 0.75, 1.25, 1.5, 2, 3], random);
+  const out: string[] = [];
+  for (const factor of factors) {
+    const next = term.type === 'year' ? Math.round(value + (factor - 1) * 40) : value * factor;
+    const text = `${prefix}${format(next)}${suffix}`;
+    if (text !== term.text && !out.includes(text) && next > 0) out.push(text);
+  }
+  return out;
+}
+
+function syntheticYears(term: Term, random: () => number): string[] {
+  const value = Number.parseInt(term.text, 10);
+  const decade = term.text.endsWith('s');
+  const offsets = shuffle(decade ? [-30, -20, -10, 10, 20, 30] : [-25, -12, -7, -3, 4, 9, 15, 30], random);
+  const now = new Date().getFullYear();
+  const out: string[] = [];
+  for (const offset of offsets) {
+    const year = value + offset;
+    if (year > now || year < 1000) continue;
+    out.push(decade ? `${year}s` : String(year));
+  }
+  return out;
+}
+
+const CLOZE_STEMS: Record<TermType, string> = {
+  year: 'Which year completes this sentence from the article?',
+  number: 'Which figure completes this sentence from the article?',
+  name: 'Which name completes this sentence from the article?',
+};
+
+const CLOZE_EXPLANATIONS: Record<TermType, string> = {
+  year: 'The article gives this year. The other years also appear in the article or are nearby, but they refer to something else.',
+  number: 'That is the figure the article gives here. The other figures belong to different points in the article.',
+  name: 'The article names this here. The other names appear elsewhere in the same article.',
+};
+
+// ---------------------------------------------------------------------------
+// Drafts
+
 type DraftQuestion = {
   sentenceIndex: number;
   kind: QuizKind;
   prompt: string;
   answer: string;
   explanation: string;
+  /** Wrong choices already chosen for this question. */
+  distractors: string[];
 };
 
-const MEANING_VERBS: Record<string, string> = {
-  shows: 'show',
-  show: 'show',
-  means: 'mean',
-  mean: 'mean',
-  indicates: 'indicate',
-  indicate: 'indicate',
-  measures: 'measure',
-  measure: 'measure',
-  describes: 'describe',
-  describe: 'describe',
-  represents: 'represent',
-  represent: 'represent',
-  explains: 'explain',
-  explain: 'explain',
-  tracks: 'track',
-  track: 'track',
-  lets: 'let',
-  let: 'let',
-  allows: 'allow',
-  allow: 'allow',
-  helps: 'help',
-  help: 'help',
-};
+type TermBank = Record<TermType, Map<string, string>>;
 
-function fromBecause(sentence: ScoredSentence): DraftQuestion | null {
-  const match = sentence.text.match(/^(.+?)\s+because\s+(.+)$/i);
-  if (!match) return null;
-  const effect = tidy(match[1] ?? '');
-  const cause = asAnswer(match[2] ?? '');
-  if (effect.length < 12 || cause.length < 12) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'why',
-    prompt: `Why does the article say that ${lowerFirst(effect)}?`,
-    answer: cause,
-    explanation: 'That is the reason the article gives. The other choices are different points from the text.',
-  };
-}
-
-function fromPurpose(sentence: ScoredSentence): DraftQuestion | null {
-  const match = sentence.text.match(/^(.+?)\s+(?:in order to|so that)\s+(.+)$/i);
-  if (!match) return null;
-  const action = tidy(match[1] ?? '');
-  const purpose = asAnswer(match[2] ?? '');
-  if (action.length < 12 || purpose.length < 8) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'why',
-    prompt: `What is the purpose of this: ${lowerFirst(action)}?`,
-    answer: purpose,
-    explanation: 'The article is explaining why that idea matters, not asking you to recall one word.',
-  };
-}
-
-function fromMeaning(sentence: ScoredSentence): DraftQuestion | null {
-  const verbs = Object.keys(MEANING_VERBS).sort((a, b) => b.length - a.length).join('|');
-  const match = sentence.text.match(new RegExp(`^(.{8,90}?)\\s+(${verbs})\\s+(.{12,})$`, 'i'));
-  if (!match) return null;
-  const subject = tidy(match[1] ?? '');
-  const verb = (match[2] ?? '').toLowerCase();
-  const object = asAnswer(match[3] ?? '');
-  const base = MEANING_VERBS[verb];
-  if (!base || subject.length < 8 || object.length < 12) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'meaning',
-    prompt: `What does ${lowerFirst(subject)} ${base}?`,
-    answer: object,
-    explanation: 'That is what the article says the idea means. The other choices describe different ideas.',
-  };
-}
-
-function fromWhen(sentence: ScoredSentence): DraftQuestion | null {
-  const match = sentence.text.match(/^When\s+(.+?),\s+(.+)$/i);
-  if (!match) return null;
-  const situation = tidy(match[1] ?? '');
-  const response = asAnswer(match[2] ?? '');
-  if (situation.length < 12 || response.length < 12) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'relation',
-    prompt: `What does the article say follows from this: ${lowerFirst(situation)}?`,
-    answer: response,
-    explanation: 'The article connects that situation to this outcome. The other choices belong to different parts of the piece.',
-  };
-}
-
-function fromRather(sentence: ScoredSentence): DraftQuestion | null {
-  const match = sentence.text.match(/would rather\s+(.{3,80}?)\s+than\s+(.{3,80})/i);
-  if (!match) return null;
-  const preferred = tidy(match[1] ?? '');
-  const avoided = tidy(match[2] ?? '');
-  if (preferred.length < 3 || avoided.length < 3) return null;
-  const answer = preferred.split(/\s+/).length < 3
-    ? `${asAnswer(preferred)} rather than ${lowerFirst(avoided)}`
-    : asAnswer(preferred);
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'relation',
-    prompt: 'What preference does the article describe?',
-    answer,
-    explanation: 'The article sets up that comparison. The other choices are different ideas, not this preference.',
-  };
-}
-
-function fromColon(sentence: ScoredSentence): DraftQuestion | null {
-  const match = sentence.text.match(/^(.{12,100}?):\s+(.{12,})$/);
-  if (!match) return null;
-  const setup = tidy(match[1] ?? '');
-  const point = asAnswer(match[2] ?? '');
-  if (setup.length < 12 || point.length < 12) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'meaning',
-    prompt: `What does the article mean by this: ${lowerFirst(setup)}?`,
-    answer: point,
-    explanation: 'That is the idea being spelled out. The other choices come from elsewhere in the article.',
-  };
-}
-
-const TAKEAWAY_PROMPTS = [
-  'Which of these is a main point of the article?',
-  'Which idea should a reader remember from this article?',
-  'Which statement is a key takeaway, rather than a minor detail?',
-  'What is one of the central ideas in the article?',
-];
-
-function fromTakeaway(sentence: ScoredSentence, promptIndex: number): DraftQuestion | null {
-  const answer = asAnswer(clip(sentence.text));
-  if (answer.length < 24) return null;
-  return {
-    sentenceIndex: sentence.index,
-    kind: 'takeaway',
-    prompt: TAKEAWAY_PROMPTS[promptIndex % TAKEAWAY_PROMPTS.length] ?? TAKEAWAY_PROMPTS[0],
-    answer,
-    explanation: 'This is one of the article’s central ideas. The other choices are separate details from the same text.',
-  };
-}
-
-function conceptDrafts(ranked: ScoredSentence[]): DraftQuestion[] {
-  const drafts: DraftQuestion[] = [];
-  const seenAnswers = new Set<string>();
-  const seenPrompts = new Set<string>();
-  const builders = [fromBecause, fromPurpose, fromMeaning, fromWhen, fromRather, fromColon];
-  for (const sentence of ranked) {
-    for (const build of builders) {
-      const draft = build(sentence);
-      if (!draft) continue;
-      const answerKey = draft.answer.toLowerCase();
-      const promptKey = draft.prompt.toLowerCase();
-      if (seenAnswers.has(answerKey) || seenPrompts.has(promptKey)) continue;
-      if (sameIdea(draft.prompt, draft.answer)) continue;
-      drafts.push(draft);
-      seenAnswers.add(answerKey);
-      seenPrompts.add(promptKey);
-      break;
+function buildTermBank(sentences: ScoredSentence[]): TermBank {
+  const bank: TermBank = { year: new Map(), number: new Map(), name: new Map() };
+  for (const sentence of sentences) {
+    for (const term of extractTerms(sentence.text)) {
+      const key = termKey(term.text);
+      if (key && !bank[term.type].has(key)) bank[term.type].set(key, term.text);
     }
   }
-  return drafts;
+  return bank;
+}
+
+function clozeDraft(sentence: ScoredSentence, term: Term, bank: TermBank, random: () => number): DraftQuestion | null {
+  const answerKey = termKey(term.text);
+  const sameType = [...bank[term.type].entries()]
+    .filter(([key]) => key !== answerKey && !sameIdea(key, answerKey))
+    // A distractor that already appears in this sentence would make the blank ambiguous.
+    .filter(([, text]) => !sentence.text.includes(text))
+    .map(([, text]) => text);
+  // Numbers must share a unit ("2,900 feet" vs "300 feet"), otherwise the answer is obvious.
+  const unit = numberUnit(term.text);
+  let pool = shuffle(term.type === 'number' ? sameType.filter((text) => numberUnit(text) === unit) : sameType, random);
+  if (pool.length < 3 && term.type === 'year') pool = [...pool, ...syntheticYears(term, random)];
+  if (pool.length < 3 && term.type === 'number') pool = [...pool, ...syntheticNumbers(term, random)];
+  const distractors: string[] = [];
+  for (const candidate of pool) {
+    if (distractors.length >= 3) break;
+    if (termKey(candidate) === answerKey || distractors.some((item) => termKey(item) === termKey(candidate))) continue;
+    distractors.push(candidate);
+  }
+  if (distractors.length < 2) return null;
+  return {
+    sentenceIndex: sentence.index,
+    kind: 'cloze',
+    prompt: `${CLOZE_STEMS[term.type]}\n“${blankOut(sentence.text, term)}”`,
+    answer: term.text,
+    explanation: CLOZE_EXPLANATIONS[term.type],
+    distractors,
+  };
+}
+
+/** Prefer years, then names, then numbers; longer names are more specific than single words. */
+function rankTerms(terms: Term[]): Term[] {
+  const weight = (term: Term) =>
+    term.type === 'year' ? 3 : term.type === 'name' ? 2 + Math.min(term.text.split(/\s+/).length, 3) * 0.2 : 1.5;
+  return terms.slice().sort((a, b) => weight(b) - weight(a));
+}
+
+type ReasonDraft = { sentenceIndex: number; effect: string; answer: string; kind: QuizKind };
+
+function reasonParts(sentence: ScoredSentence): ReasonDraft | null {
+  const because = sentence.text.match(/^(.{12,160}?)\s+because\s+(.{12,160})$/i);
+  if (because) {
+    return { sentenceIndex: sentence.index, effect: tidy(because[1] ?? ''), answer: asAnswer(because[2] ?? ''), kind: 'why' };
+  }
+  const purpose = sentence.text.match(/^(.{12,160}?)\s+(?:in order to|so that)\s+(.{8,160})$/i);
+  if (purpose) {
+    return { sentenceIndex: sentence.index, effect: tidy(purpose[1] ?? ''), answer: asAnswer(purpose[2] ?? ''), kind: 'why' };
+  }
+  return null;
+}
+
+/**
+ * "Why" questions only when the article gives at least three reasons, so every
+ * wrong choice is also a reason from the same article (same type), never a random sentence.
+ */
+function reasonDrafts(sentences: ScoredSentence[], random: () => number): DraftQuestion[] {
+  const reasons = sentences.map(reasonParts).filter((item): item is ReasonDraft => item !== null);
+  if (reasons.length < 3) return [];
+  return reasons.map((reason) => {
+    const others = shuffle(
+      reasons.filter((other) => other !== reason && !sameIdea(other.answer, reason.answer)).map((other) => other.answer),
+      random,
+    ).slice(0, 3);
+    return {
+      sentenceIndex: reason.sentenceIndex,
+      kind: reason.kind,
+      prompt: `According to the article, why ${lowerFirst(reason.effect)}?`,
+      answer: reason.answer,
+      explanation: 'That is the reason the article gives. The other choices are reasons the article gives for different things.',
+      distractors: others,
+    };
+  });
 }
 
 export function quizSizeForPoints(pointCount: number): number {
@@ -301,37 +422,9 @@ export function quizSizeForPoints(pointCount: number): number {
   return Math.min(MAX_QUIZ_QUESTIONS, Math.max(MIN_QUIZ_QUESTIONS, Math.ceil(pointCount / 2)));
 }
 
-function claimPool(sentences: ScoredSentence[], exceptIndex: number): string[] {
-  const claims: string[] = [];
-  for (const sentence of sentences) {
-    if (sentence.index === exceptIndex) continue;
-    claims.push(sentence.text);
-    for (const part of sentence.text.split(/\s+(?:because|in order to|so that)\s+|:\s+/i)) {
-      claims.push(part);
-    }
-    const when = sentence.text.match(/^When\s+(.+?),\s+(.+)$/i);
-    if (when?.[1] && when[2]) {
-      claims.push(when[1], when[2]);
-    }
-  }
-  return claims.map((claim) => asAnswer(clip(claim))).filter((claim) => claim.length >= 12);
-}
-
-function pickDistractors(answer: string, pool: string[], random: () => number): string[] {
-  const chosen: string[] = [];
-  for (const candidate of shuffle(pool, random)) {
-    if (chosen.length >= 3) break;
-    if (sameIdea(candidate, answer) || chosen.some((item) => sameIdea(item, candidate))) continue;
-    const ratio = candidate.length / Math.max(answer.length, 1);
-    if (ratio < 0.35 || ratio > 3) continue;
-    chosen.push(candidate);
-  }
-  return chosen;
-}
-
 export function summarize(input: StudyInput): string {
   const sentences = splitSentences(input.content);
-  if (sentences.length === 0) return input.content.trim();
+  if (sentences.length === 0) return input.content.trim().slice(0, 600);
   if (sentences.length <= 2) return sentences.join(' ');
 
   const ranked = scoreSentences(sentences, input.title)
@@ -349,63 +442,75 @@ export function quizQuestionKey(prompt: string, answer: string): string {
   return `${prompt.trim().toLowerCase()}\n${answer.trim().toLowerCase()}`;
 }
 
+function keyOf(question: QuizQuestion): string {
+  return quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '');
+}
+
 export function sameQuizSet(left: QuizQuestion[], right: QuizQuestion[]): boolean {
   if (left.length !== right.length) return false;
-  const keys = (questions: QuizQuestion[]) =>
-    questions.map((question) => quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')).sort();
-  const a = keys(left);
-  const b = keys(right);
+  const a = left.map(keyOf).sort();
+  const b = right.map(keyOf).sort();
   return a.every((key, index) => key === b[index]);
 }
 
 export function buildQuiz(
   input: StudyInput,
   now = new Date(),
-  options?: { exclude?: ReadonlySet<string> },
+  options?: {
+    /** quizQuestionKey(prompt, answer) values that must not be asked again. */
+    exclude?: ReadonlySet<string>;
+    /** Changes which term is picked and how choices are shuffled; 0 is the default set. */
+    seed?: number;
+  },
 ): Quiz {
   const sentences = splitSentences(input.content);
   const ranked = scoreSentences(sentences, input.title)
     .filter((sentence) => sentence.score > 0)
     .sort((a, b) => b.score - a.score);
-  const random = mulberry32(hashString(`${input.title}\n${input.content}`));
+  const seed = options?.seed ?? 0;
+  const random = mulberry32(hashString(`${input.title}\n${input.content}\n${seed}`));
   const target = quizSizeForPoints(ranked.length);
-  const selected: DraftQuestion[] = [];
-  const used = new Set<number>();
-  const seenPrompts = new Set<string>();
   const exclude = options?.exclude;
+  const bank = buildTermBank(ranked);
 
-  for (const draft of conceptDrafts(ranked)) {
-    if (selected.length >= target) break;
-    if (exclude?.has(quizQuestionKey(draft.prompt, draft.answer))) continue;
-    if (used.has(draft.sentenceIndex) || seenPrompts.has(draft.prompt.toLowerCase())) continue;
+  const selected: DraftQuestion[] = [];
+  const usedSentences = new Set<number>();
+  const usedAnswers = new Set<string>();
+  const accept = (draft: DraftQuestion | null): boolean => {
+    if (!draft) return false;
+    if (exclude?.has(quizQuestionKey(draft.prompt, draft.answer))) return false;
+    if (usedSentences.has(draft.sentenceIndex) || usedAnswers.has(termKey(draft.answer))) return false;
+    if (draft.distractors.length < 2) return false;
     selected.push(draft);
-    used.add(draft.sentenceIndex);
-    seenPrompts.add(draft.prompt.toLowerCase());
-  }
+    usedSentences.add(draft.sentenceIndex);
+    usedAnswers.add(termKey(draft.answer));
+    return true;
+  };
 
-  let takeawayIndex = 0;
+  // Cloze questions first: one per sentence, trying the best key term and then the others.
   for (const sentence of ranked) {
     if (selected.length >= target) break;
-    if (used.has(sentence.index)) continue;
-    const draft = fromTakeaway(sentence, takeawayIndex);
-    takeawayIndex += 1;
-    if (!draft || exclude?.has(quizQuestionKey(draft.prompt, draft.answer)) || seenPrompts.has(draft.prompt.toLowerCase())) continue;
-    selected.push(draft);
-    used.add(sentence.index);
-    seenPrompts.add(draft.prompt.toLowerCase());
+    const terms = rankTerms(extractTerms(sentence.text));
+    // Rotate the preferred term by seed so later sets can ask about a different term in the same sentence.
+    const rotated = terms.length > 0 ? [...terms.slice(seed % terms.length), ...terms.slice(0, seed % terms.length)] : terms;
+    for (const term of rotated) {
+      if (accept(clozeDraft(sentence, term, bank, random))) break;
+    }
   }
 
+  // Then reason questions whose distractors are other reasons.
+  for (const draft of reasonDrafts(ranked, random)) {
+    if (selected.length >= target) break;
+    accept(draft);
+  }
+
+  const want = ranked.length >= 4 ? 3 : 2;
   const questions: QuizQuestion[] = [];
   for (const draft of selected.sort((a, b) => a.sentenceIndex - b.sentenceIndex)) {
-    const pool = [
-      ...selected.filter((item) => item !== draft).map((item) => item.answer),
-      ...claimPool(ranked, draft.sentenceIndex),
-    ];
-    const distractors = pickDistractors(draft.answer, pool, random);
-    const want = ranked.length >= 4 ? 3 : 2;
-    if (distractors.length < want) continue;
-    const picked = distractors.slice(0, want);
+    const picked = draft.distractors.filter((item) => !sameIdea(item, draft.answer)).slice(0, want);
+    if (picked.length < want && picked.length < 2) continue;
     const choices = shuffle([draft.answer, ...picked], random);
+    if (new Set(choices.map((choice) => choice.toLowerCase())).size !== choices.length) continue;
     questions.push({
       id: `q${questions.length + 1}`,
       kind: draft.kind,
@@ -420,27 +525,33 @@ export function buildQuiz(
     engine: STUDY_ENGINE_ID,
     generatedAt: now.toISOString(),
     questions,
+    asked: questions.map(keyOf),
     note: questions.length === 0 ? 'Not enough article text to build a quiz.' : undefined,
   };
 }
 
 /**
- * Another set for the same article, or null when every question would repeat the previous set.
- * The heuristic is deterministic, so this only succeeds when unused sentences can still form questions.
+ * Another set for the same article with no question that was asked before, or null when nothing new is left.
+ * `previous` is the set on screen; `askedKeys` is the history persisted on the quiz (`Quiz.asked`), so a
+ * second or third reward never brings back the first set. Several seeds are tried before giving up.
  */
-export function freshQuizIfDifferent(input: StudyInput, previous: QuizQuestion[], now = new Date()): Quiz | null {
+export function freshQuizIfDifferent(
+  input: StudyInput,
+  previous: QuizQuestion[],
+  now = new Date(),
+  askedKeys?: Iterable<string>,
+): Quiz | null {
   if (previous.length === 0) return null;
-  const exclude = new Set(
-    previous.map((question) => quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')),
-  );
-  const next = buildQuiz(input, now, { exclude });
-  if (next.questions.length === 0) return null;
-  if (sameQuizSet(previous, next.questions)) return null;
-  const novel = next.questions.some(
-    (question) => !exclude.has(quizQuestionKey(question.prompt, question.choices[question.answerIndex] ?? '')),
-  );
-  if (!novel) return null;
-  return next;
+  const exclude = new Set<string>([...previous.map(keyOf), ...(askedKeys ?? [])]);
+  for (let seed = 0; seed < 4; seed += 1) {
+    const next = buildQuiz(input, now, { exclude, seed });
+    const novel = next.questions.filter((question) => !exclude.has(keyOf(question)));
+    if (novel.length === 0) continue;
+    const questions = novel.map((question, index) => ({ ...question, id: `q${index + 1}` }));
+    if (sameQuizSet(previous, questions)) continue;
+    return { ...next, questions, asked: [...exclude, ...questions.map(keyOf)] };
+  }
+  return null;
 }
 
 export const heuristicEngine: StudyEngine = {
