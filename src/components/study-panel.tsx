@@ -6,6 +6,7 @@ import { useAds } from '@/lib/ads/ads-context';
 import { useEntitlement } from '@/lib/entitlement';
 import { saveStudy } from '@/lib/articles';
 import { planQuizOffer, visibleQuizCount } from '@/lib/quiz-reward';
+import { maybeRequestReviewAfterQuiz, noteFullscreenAd } from '@/lib/review-prompt';
 import { freshQuizIfDifferent, getStudyEngine } from '@/lib/study';
 import type { Article, QuizQuestion } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
@@ -88,6 +89,22 @@ export function StudyPanel({
     void recordQuizOfferShown();
   }, [finished, recordQuizOfferShown, showOffer]);
 
+  const reviewChecked = useRef(false);
+  useEffect(() => {
+    if (!finished) {
+      reviewChecked.current = false;
+      return;
+    }
+    if (reviewChecked.current || activeQuestions.length === 0) return;
+    reviewChecked.current = true;
+    void maybeRequestReviewAfterQuiz({
+      correct: correctCount,
+      total: activeQuestions.length,
+      sessionCount: ads.sessionCount,
+      lastFullscreenAt: ads.lastFullscreenAt,
+    });
+  }, [activeQuestions.length, ads.lastFullscreenAt, ads.sessionCount, correctCount, finished]);
+
   const resetQuiz = () => {
     setCursor(0);
     setPicked(null);
@@ -134,6 +151,7 @@ export function StudyPanel({
       quizQuestionCount: questions.length,
       quizFresh: fresh,
     }).then(async (result) => {
+      if (result !== 'unavailable') void noteFullscreenAd();
       if (result !== 'earned') return;
       if (fresh && replacement) {
         if (db && article.summary) {
