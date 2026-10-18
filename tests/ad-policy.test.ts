@@ -359,7 +359,11 @@ test('app.json and eas.json carry the real app id, and native builds keep iOS ad
   assert.equal(eas.build.production.env?.ADS_MODE, 'live');
   assert.equal(eas.build.preview.env?.ADS_MODE, 'test');
   assert.equal(eas.build.development.env?.ADS_MODE, 'test');
-  assert.deepEqual(eas.build.production.buildArtifactPaths, ['android/app/build/outputs/mapping/release/mapping.txt']);
+  // buildArtifactPaths must stay unset: with `eas build --local --output` the extra artifact
+  // (mapping.txt) is written to the --output path and replaces the .aab.
+  for (const [name, profile] of Object.entries(eas.build)) {
+    assert.equal(profile.buildArtifactPaths, undefined, `build.${name} must not set buildArtifactPaths`);
+  }
 
   const ids = resolveMobileAdsAppIds({
     profile: 'preview',

@@ -170,7 +170,7 @@ To turn on real ads at the public release:
 
 - `development`: `developmentClient`, `distribution: internal`, and `ADS_MODE=test`
 - `preview`: `distribution: internal` and `ADS_MODE=test`
-- `production`: `autoIncrement`, `ADS_MODE=live`, `ADMOB_ANDROID_APP_ID`, and `buildArtifactPaths` for the R8 `mapping.txt`. `ADS_MODE=live` hides the dev ads readout, but while the real unit IDs are commented out it still requests Google's test units.
+- `production`: `autoIncrement`, `ADS_MODE=live`, and `ADMOB_ANDROID_APP_ID`. No `buildArtifactPaths` (see R8 below). `ADS_MODE=live` hides the dev ads readout, but while the real unit IDs are commented out it still requests Google's test units.
 
 `cli.appVersionSource` is `remote`, so EAS keeps the Android `versionCode` on its servers. Each `production` build increments it. `app.json` has no `versionCode`. The version name stays `1.0.0`.
 
@@ -202,7 +202,7 @@ It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downl
 
 ## Release build settings
 
-- R8: `expo-build-properties` sets `enableMinifyInReleaseBuilds` and `enableShrinkResourcesInReleaseBuilds`. The only extra keep rule is `-keep class com.google.android.gms.internal.consent_sdk.** { *; }` for the UMP consent SDK. Expo modules, Reanimated, Worklets, Screens, and Google Mobile Ads ship their own consumer rules. Release builds write `android/app/build/outputs/mapping/release/mapping.txt`. The `production` profile lists it in `buildArtifactPaths`, so an EAS cloud build offers it as an extra download. For a manual upload, Play Console has it under App bundle explorer, the version, Downloads, ReTrace mapping file.
+- R8: `expo-build-properties` sets `enableMinifyInReleaseBuilds` and `enableShrinkResourcesInReleaseBuilds`. The only extra keep rule is `-keep class com.google.android.gms.internal.consent_sdk.** { *; }` for the UMP consent SDK. Expo modules, Reanimated, Worklets, Screens, and Google Mobile Ads ship their own consumer rules. Release builds write `android/app/build/outputs/mapping/release/mapping.txt`. Gradle also embeds it in the AAB under `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`, so Play reads it automatically when you upload the bundle. Nothing to export or upload by hand. Do not add `buildArtifactPaths` to any `eas.json` build profile: with `eas build --local --output <file>` (what the Local Android build workflow runs), EAS writes the extra artifact to the same `--output` path, so `mapping.txt` overwrites the `.aab`. The result is a ~70 MB text file named `.aab` that Play rejects. To check a downloaded build, unzip the artifact zip and run `unzip -l app-production.aab | head`; a real bundle lists `BundleConfig.pb` and `base/`. Play Console also shows the mapping under App bundle explorer, the version, Downloads, ReTrace mapping file.
 - Edge-to-edge: Expo SDK 57 draws edge-to-edge by default. There are no status or navigation bar colours in `app.json` or code. `expo-system-ui` sets the root background, and `expo-status-bar` icons follow the theme. Screens pad all four safe-area insets, and the Pro sheet uses translucent system bars with insets.
 - Large screens: `orientation` is `default`, with no orientation lock. Content is capped at 720 px and centred. The Pro sheet is capped at 560 px and scrolls only when the window is too short.
 
