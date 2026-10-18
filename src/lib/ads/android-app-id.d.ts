@@ -1,5 +1,8 @@
+export const ADMOB_ANDROID_APP_ID: string;
 export const ADMOB_ANDROID_APP_ID_PLACEHOLDER: string;
-export const GOOGLE_SAMPLE_ANDROID_APP_ID: string;
+export const GOOGLE_SAMPLE_PUBLISHER: string;
+
+export function isLiveAdBuild(input: { profile: string; adsMode?: string | null }): boolean;
 
 export function resolveAndroidAppId(input: {
   profile: string;

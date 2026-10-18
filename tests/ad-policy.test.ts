@@ -24,15 +24,24 @@ import {
 import { emptyAdState, sanitizeAdState, type AdState } from '../src/lib/ads/ad-state.ts';
 import { isProEnabledFrom } from '../src/lib/pro-flag-value.ts';
 import { planQuizOffer } from '../src/lib/quiz-reward.ts';
-import { getUnitId, GOOGLE_TEST_UNIT_IDS, resetUnitIdWarnings } from '../src/lib/ads/ad-units.ts';
 import {
+  getUnitId,
+  GOOGLE_TEST_UNIT_IDS,
+  LIVE_AD_UNITS_ENABLED,
+  PRODUCTION_UNIT_IDS,
+  resetUnitIdWarnings,
+  usesTestUnits,
+} from '../src/lib/ads/ad-units.ts';
+import {
+  ADMOB_ANDROID_APP_ID,
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
   applyRootMobileAdsAppIds,
-  GOOGLE_SAMPLE_ANDROID_APP_ID,
+  isLiveAdBuild,
   resolveAndroidAppId,
   resolveMobileAdsAppIds,
   syncRootMobileAdsAppIds,
 } from '../src/lib/ads/android-app-id.js';
+import { assertProductionUnitIds, checkLiveAdUnits, missingProductionUnits } from '../src/lib/ads/production-unit-ids.js';
 
 const NOW = Date.parse('2026-06-15T15:00:00');
 
@@ -217,7 +226,7 @@ test('ad requests carry only the non-personalized flag', () => {
   assert.equal('neighboringContentUrls' in options, false);
 });
 
-test('getUnitId uses Google test ids in test mode and disables placeholder live ids', () => {
+test('getUnitId uses Google test ids in every mode while real units are commented out', () => {
   resetUnitIdWarnings();
   const source = readFileSync('node_modules/react-native-google-mobile-ads/src/TestIds.ts', 'utf8');
   assert.match(source, /ADAPTIVE_BANNER: 'ca-app-pub-3940256099942544\/9214589741'/);
@@ -245,78 +254,138 @@ test('getUnitId uses Google test ids in test mode and disables placeholder live 
     }),
     'from-library',
   );
-  assert.equal(getUnitId('shelf_banner', { testMode: false }), null);
-  assert.equal(getUnitId('save_interstitial', { testMode: false }), null);
+  for (const placement of ['shelf_banner', 'article_end_banner', 'save_interstitial', 'study_rewarded'] as const) {
+    assert.equal(getUnitId(placement, { testMode: false, liveUnitsEnabled: false }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    if (LIVE_AD_UNITS_ENABLED) {
+      // Public release: a live build requests the real unit.
+      assert.equal(getUnitId(placement, { testMode: false }), PRODUCTION_UNIT_IDS?.[placement]);
+      continue;
+    }
+    // Closed testing: a live (production) build still resolves every placement to a Google test unit.
+    assert.equal(getUnitId(placement, { testMode: false }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    assert.equal(getUnitId(placement, { testMode: false, liveUnitsEnabled: true }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    assert.equal(
+      getUnitId(placement, { testMode: false, testIds: { [placement]: 'from-library' } }),
+      'from-library',
+    );
+  }
 });
 
-test('Android app id falls back to the sample outside production and throws in production', () => {
-  assert.equal(
-    resolveAndroidAppId({ profile: 'preview', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    GOOGLE_SAMPLE_ANDROID_APP_ID,
-  );
-  assert.equal(
-    resolveAndroidAppId({ profile: 'local', fromEnv: ADMOB_ANDROID_APP_ID_PLACEHOLDER, fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    GOOGLE_SAMPLE_ANDROID_APP_ID,
-  );
-  assert.equal(
-    resolveAndroidAppId({ profile: 'production', fromEnv: 'ca-app-pub-123~456' }),
-    'ca-app-pub-123~456',
-  );
-  assert.equal(
-    resolveAndroidAppId({ profile: 'production', fromConfig: 'ca-app-pub-9~8' }),
-    'ca-app-pub-9~8',
-  );
-  assert.throws(
-    () => resolveAndroidAppId({ profile: 'production', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    /real AdMob Android app ID/,
-  );
-  assert.equal(
-    resolveAndroidAppId({ profile: 'production', adsMode: 'test', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    GOOGLE_SAMPLE_ANDROID_APP_ID,
-  );
-  assert.throws(
-    () => resolveAndroidAppId({ profile: 'preview', adsMode: 'live', fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
-    /real AdMob Android app ID/,
-  );
+test('real ad units stay commented out during closed testing, and production builds still pass', (t) => {
+  if (LIVE_AD_UNITS_ENABLED) {
+    t.diagnostic('real ad units are enabled (public release)');
+    assert.deepEqual(missingProductionUnits(), []);
+    assert.doesNotThrow(() => checkLiveAdUnits(true));
+    assert.equal(usesTestUnits(false), false);
+    return;
+  }
+  assert.equal(LIVE_AD_UNITS_ENABLED, false);
+  assert.equal(PRODUCTION_UNIT_IDS, null);
+  assert.equal(usesTestUnits(false), true);
+  assert.equal(usesTestUnits(true), true);
+
+  // The production build check is skipped while live units are off, so production builds succeed.
+  assert.doesNotThrow(() => checkLiveAdUnits(true));
+  assert.doesNotThrow(() => checkLiveAdUnits(false));
+
+  // The real IDs are kept in the file, commented out, next to the re-enable steps.
+  const source = readFileSync('src/lib/ads/production-unit-ids.js', 'utf8');
+  assert.match(source, /^const PRODUCTION_UNIT_IDS = null;$/m);
+  assert.match(source, /^\/\/ {3}shelf_banner: 'ca-app-pub-4342572133101591\/5889882153',$/m);
+  assert.match(source, /^\/\/ {3}article_end_banner: 'ca-app-pub-4342572133101591\/7526222443',$/m);
+  assert.match(source, /^\/\/ {3}save_interstitial: 'ca-app-pub-4342572133101591\/3978034680',$/m);
+  assert.match(source, /^\/\/ {3}study_rewarded: 'ca-app-pub-4342572133101591\/3387841891',$/m);
+  assert.match(source, /To turn on real ads at the public release/);
 });
 
-test('non-live builds replace the Android app id and keep iOS ads commented out', () => {
+test('once real units are enabled, a live build stops when one is missing or a test unit', () => {
+  const real = {
+    shelf_banner: 'ca-app-pub-4342572133101591/5889882153',
+    article_end_banner: 'ca-app-pub-4342572133101591/7526222443',
+    save_interstitial: 'ca-app-pub-4342572133101591/3978034680',
+    study_rewarded: 'ca-app-pub-4342572133101591/3387841891',
+  };
+  assert.deepEqual(missingProductionUnits(real), []);
+  assert.doesNotThrow(() => checkLiveAdUnits(true, true, real));
+  const broken = {
+    ...real,
+    article_end_banner: 'ca-app-pub-XXXXXXXX/XXXXXXXX',
+    study_rewarded: GOOGLE_TEST_UNIT_IDS.android.study_rewarded,
+  };
+  assert.deepEqual(missingProductionUnits(broken), ['article_end_banner', 'study_rewarded']);
+  assert.throws(() => assertProductionUnitIds(broken), /Missing: article_end_banner, study_rewarded/);
+  assert.throws(() => checkLiveAdUnits(true, true, broken), /Missing: article_end_banner, study_rewarded/);
+  assert.doesNotThrow(() => checkLiveAdUnits(false, true, broken));
+  assert.throws(() => checkLiveAdUnits(true, true, null), /Missing: shelf_banner, article_end_banner, save_interstitial, study_rewarded/);
+});
+
+test('every build mode uses the real Android app id, and a missing or sample id throws', () => {
+  assert.equal(ADMOB_ANDROID_APP_ID, 'ca-app-pub-4342572133101591~7238447832');
+  for (const input of [
+    { profile: 'local' },
+    { profile: 'development', adsMode: 'test' },
+    { profile: 'preview', adsMode: 'test' },
+    { profile: 'production', adsMode: 'live' },
+  ]) {
+    assert.equal(resolveAndroidAppId({ ...input, fromConfig: ADMOB_ANDROID_APP_ID }), ADMOB_ANDROID_APP_ID);
+    assert.equal(
+      resolveAndroidAppId({ ...input, fromEnv: ADMOB_ANDROID_APP_ID, fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }),
+      ADMOB_ANDROID_APP_ID,
+    );
+    assert.throws(() => resolveAndroidAppId({ ...input, fromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER }), /real AdMob Android app ID/);
+    assert.throws(() => resolveAndroidAppId(input), /real AdMob Android app ID/);
+  }
+  const sample = ['ca-app-pub-3940256099942544', '3347511713'].join('~');
+  assert.throws(() => resolveAndroidAppId({ profile: 'preview', adsMode: 'test', fromConfig: sample }), /not a real AdMob Android app ID/);
+  assert.throws(() => resolveAndroidAppId({ profile: 'production', fromEnv: 'ca-app-pub-123~456' }), /not a real AdMob Android app ID/);
+
+  assert.equal(isLiveAdBuild({ profile: 'production' }), true);
+  assert.equal(isLiveAdBuild({ profile: 'production', adsMode: 'test' }), false);
+  assert.equal(isLiveAdBuild({ profile: 'preview', adsMode: 'live' }), true);
+  assert.equal(isLiveAdBuild({ profile: 'preview', adsMode: 'test' }), false);
+});
+
+test('app.json and eas.json carry the real app id, and native builds keep iOS ads commented out', () => {
   const source = readFileSync('app.json', 'utf8');
   assert.match(source, /\/\/ Kept for a future iOS release\. Android is the only ad target for now\./);
   assert.match(source, /\/\/ "iosAppId": "ca-app-pub-3940256099942544~1458002511"/);
   assert.match(source, /\/\/ "ios_app_id": "ca-app-pub-3940256099942544~1458002511"/);
-  assert.match(source, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
-  assert.match(source, /"android_app_id": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.match(source, new RegExp(`"androidAppId": "${ADMOB_ANDROID_APP_ID}"`));
+  assert.match(source, new RegExp(`"android_app_id": "${ADMOB_ANDROID_APP_ID}"`));
+  const eas = JSON.parse(readFileSync('eas.json', 'utf8')) as {
+    build: Record<string, { env?: Record<string, string>; buildArtifactPaths?: string[] }>;
+  };
+  assert.equal(eas.build.production.env?.ADMOB_ANDROID_APP_ID, ADMOB_ANDROID_APP_ID);
+  assert.equal(eas.build.production.env?.ADS_MODE, 'live');
+  assert.equal(eas.build.preview.env?.ADS_MODE, 'test');
+  assert.equal(eas.build.development.env?.ADS_MODE, 'test');
+  assert.deepEqual(eas.build.production.buildArtifactPaths, ['android/app/build/outputs/mapping/release/mapping.txt']);
 
   const ids = resolveMobileAdsAppIds({
     profile: 'preview',
     adsMode: 'test',
-    androidFromConfig: ADMOB_ANDROID_APP_ID_PLACEHOLDER,
+    androidFromConfig: ADMOB_ANDROID_APP_ID,
   });
-  assert.deepEqual(ids, {
-    androidAppId: GOOGLE_SAMPLE_ANDROID_APP_ID,
-  });
+  assert.deepEqual(ids, { androidAppId: ADMOB_ANDROID_APP_ID });
   const rewritten = applyRootMobileAdsAppIds(source, ids);
   const parsed = JSON.parse(rewritten) as {
     expo: { plugins: unknown[] };
     'react-native-google-mobile-ads': { android_app_id?: string; ios_app_id?: string };
   };
-  assert.equal(parsed['react-native-google-mobile-ads'].android_app_id, GOOGLE_SAMPLE_ANDROID_APP_ID);
+  assert.equal(parsed['react-native-google-mobile-ads'].android_app_id, ADMOB_ANDROID_APP_ID);
   assert.equal(parsed['react-native-google-mobile-ads'].ios_app_id, undefined);
-  assert.match(rewritten, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
   assert.doesNotMatch(rewritten, /iosAppId|ios_app_id/);
 
   const dir = mkdtempSync(path.join(tmpdir(), 'digestlocal-ads-'));
   const file = path.join(dir, 'app.json');
-  writeFileSync(file, readFileSync('app.json', 'utf8'));
+  writeFileSync(file, source);
   assert.equal(syncRootMobileAdsAppIds(ids, { env: {}, argv: ['node', 'expo', 'start'], file }), false);
-  assert.match(readFileSync(file, 'utf8'), /"android_app_id": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.equal(readFileSync(file, 'utf8'), source);
   assert.equal(syncRootMobileAdsAppIds(ids, { env: { EAS_BUILD: 'true' }, argv: ['node'], file }), true);
   const written = readFileSync(file, 'utf8');
-  assert.match(written, new RegExp(`"android_app_id": "${GOOGLE_SAMPLE_ANDROID_APP_ID}"`));
-  assert.match(written, /"androidAppId": "ca-app-pub-XXXXXXXX~YYYYYYYY"/);
+  assert.match(written, new RegExp(`"android_app_id": "${ADMOB_ANDROID_APP_ID}"`));
   assert.doesNotMatch(written, /iosAppId|ios_app_id/);
-  assert.equal(JSON.parse(written)['react-native-google-mobile-ads'].android_app_id, GOOGLE_SAMPLE_ANDROID_APP_ID);
+  assert.equal(JSON.parse(written)['react-native-google-mobile-ads'].android_app_id, ADMOB_ANDROID_APP_ID);
   assert.equal(syncRootMobileAdsAppIds(ids, { env: { EAS_BUILD: 'true' }, argv: ['node'], file }), false);
   rmSync(dir, { recursive: true, force: true });
 });

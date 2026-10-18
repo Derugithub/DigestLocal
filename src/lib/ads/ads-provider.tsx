@@ -36,7 +36,7 @@ import {
   saveRemoteConfigCache,
   type AdState,
 } from '@/lib/ads/ad-state';
-import { getUnitId, type AdPlacement, type TestIdMap } from '@/lib/ads/ad-units';
+import { getUnitId, usesTestUnits, type AdPlacement, type TestIdMap } from '@/lib/ads/ad-units';
 import {
   AdsContext,
   type AdsContextValue,
@@ -412,7 +412,8 @@ export function AdsProvider({ children }: { children: ReactNode }) {
           return;
         }
         const testMode = isTestAdsMode();
-        if (testMode) {
+        // Closed testing: live builds also use TestIds until real units are uncommented.
+        if (usesTestUnits(testMode)) {
           setLibraryTestIds({
             shelf_banner: native.TestIds.ADAPTIVE_BANNER,
             article_end_banner: native.TestIds.ADAPTIVE_BANNER,

@@ -158,7 +158,10 @@ export default function LibraryScreen() {
         data={visible}
         keyExtractor={(item) => item.id}
         style={styles.flex}
-        contentContainerStyle={[styles.list, showShelfBanner && styles.listAboveBanner]}
+        contentContainerStyle={[
+          styles.list,
+          showShelfBanner ? styles.listAboveBanner : { paddingBottom: 48 + insets.bottom },
+        ]}
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.wordmarkRow}>
@@ -256,7 +259,7 @@ function readingMinutesFromCount(wordCount: number): number {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  list: { paddingHorizontal: 22, paddingBottom: 48 },
+  list: { paddingHorizontal: 22 },
   listAboveBanner: { paddingBottom: 16 },
   bannerSlot: { paddingTop: 16 },
   header: { paddingTop: 18, gap: 14, marginBottom: 8 },

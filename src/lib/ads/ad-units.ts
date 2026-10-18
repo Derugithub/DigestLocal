@@ -1,3 +1,5 @@
+import { LIVE_AD_UNITS_ENABLED, PRODUCTION_UNIT_IDS as PRODUCTION_UNIT_ID_VALUES } from './production-unit-ids';
+
 export const AD_PLACEMENTS = ['shelf_banner', 'article_end_banner', 'save_interstitial', 'study_rewarded'] as const;
 
 export type AdPlacement = (typeof AD_PLACEMENTS)[number];
@@ -5,15 +7,18 @@ export type AdPlacement = (typeof AD_PLACEMENTS)[number];
 export type BannerSizeName = 'LARGE_ANCHORED_ADAPTIVE_BANNER' | 'INLINE_ADAPTIVE_BANNER';
 
 /**
- * Production unit IDs. Replace every `XXXXXXXX` segment before a live build.
- * Live mode treats a remaining placeholder as "ads off" and does not crash.
+ * Production unit IDs live in production-unit-ids.js. During closed testing they are commented out
+ * (null), and every build, production included, uses Google's test units. See that file to re-enable.
  */
-export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = {
-  shelf_banner: 'ca-app-pub-4342572133101591/5889882153',
-  article_end_banner: 'ca-app-pub-4342572133101591/7526222443',
-  save_interstitial: 'ca-app-pub-4342572133101591/3978034680',
-  study_rewarded: 'ca-app-pub-4342572133101591/3387841891',
-};
+export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> | null = PRODUCTION_UNIT_ID_VALUES;
+
+/** Whether real ad units are switched on. False during closed testing. */
+export { LIVE_AD_UNITS_ENABLED };
+
+/** Test units are used in test mode, and in live mode while real ad units are commented out. */
+export function usesTestUnits(testMode: boolean, liveUnitsEnabled: boolean = LIVE_AD_UNITS_ENABLED): boolean {
+  return testMode || !liveUnitsEnabled || PRODUCTION_UNIT_IDS === null;
+}
 
 /**
  * Google's public test unit IDs, matching `TestIds` in react-native-google-mobile-ads 17.2.0.
@@ -50,9 +55,15 @@ export function resetUnitIdWarnings(): void {
  */
 export function getUnitId(
   placement: AdPlacement,
-  options: { testMode: boolean; platform?: 'android' | 'ios'; testIds?: Partial<TestIdMap> },
+  options: {
+    testMode: boolean;
+    platform?: 'android' | 'ios';
+    testIds?: Partial<TestIdMap>;
+    /** Defaults to LIVE_AD_UNITS_ENABLED. Only tests pass this. */
+    liveUnitsEnabled?: boolean;
+  },
 ): string | null {
-  if (options.testMode) {
+  if (usesTestUnits(options.testMode, options.liveUnitsEnabled) || PRODUCTION_UNIT_IDS === null) {
     const fromLibrary = options.testIds?.[placement];
     if (fromLibrary) return fromLibrary;
     // Kept for a future iOS release. Android is the only ad target for now.

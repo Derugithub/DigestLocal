@@ -4,7 +4,7 @@
     "slug": "digestlocal",
     "owner": "deredo",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "digestlocal",
     "userInterfaceStyle": "automatic",
@@ -38,6 +38,7 @@
         }
       ],
       "expo-sqlite",
+      "expo-system-ui",
       [
         "expo-splash-screen",
         {
@@ -75,6 +76,8 @@
         "expo-build-properties",
         {
           "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "extraProguardRules": "-keep class com.google.android.gms.internal.consent_sdk.** { *; }"
           }
         }

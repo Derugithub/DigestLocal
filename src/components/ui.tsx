@@ -32,7 +32,12 @@ export function Screen({
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.screen, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.screen,
+        // Left and right insets keep content clear of landscape cutouts and side nav bars. Screens pad the bottom.
+        { backgroundColor: colors.bg, paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+      ]}>
       <View style={[styles.column, padded && styles.padded, style]}>{children}</View>
     </View>
   );

@@ -83,7 +83,7 @@ export const PRIVACY_POLICY_URL = 'https://derugithub.github.io/Privacy-policy/d
 export const SUPPORT_EMAIL = 'movadmob@gmail.com';
 
 /**
- * Placeholder. app-ads.txt must be served at the root of this domain
+ * The Play Console developer website. app-ads.txt must be served at the root of this domain
  * (the Play Console developer website), not under a project path.
  */
 export const DEVELOPER_DOMAIN = 'https://derugithub.github.io';

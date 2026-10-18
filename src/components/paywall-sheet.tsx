@@ -1,4 +1,5 @@
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText, Button } from '@/components/ui';
 import { useAppTheme } from '@/theme/preferences';
@@ -30,12 +31,23 @@ export function PaywallSheet({
   onAdFree: () => void;
 }) {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const priceLabel = price ? `Get Pro, ${price}` : 'Get Pro';
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.line }]}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}>
+      <View style={[styles.backdrop, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
+        {/* The sheet keeps its height on phones; a short window (landscape) caps it and lets it scroll. */}
+        <ScrollView
+          style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.line }]}
+          contentContainerStyle={[styles.sheetContent, { paddingBottom: 28 + insets.bottom }]}
+          bounces={false}>
           <View style={styles.header}>
             <AppText variant="label" color={colors.accent}>
               DigestLocal Pro
@@ -61,7 +73,7 @@ export function PaywallSheet({
           <AppText variant="meta" color={colors.faint}>
             One-time purchase via Google Play. No account needed. Restore on any device signed in to the same Google account.
           </AppText>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -74,12 +86,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(42, 42, 42, 0.35)',
   },
   sheet: {
+    flexGrow: 0,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
+  },
+  sheetContent: {
     paddingHorizontal: 22,
     paddingTop: 18,
-    paddingBottom: 28,
     gap: 14,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

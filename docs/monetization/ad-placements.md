@@ -74,4 +74,13 @@ Rewarded shows share a ceiling of 15 per local day, which is 6 ad-free passes, 8
 
 ## Test ads
 
-`__DEV__` and any build whose `extra.adsMode` is not `live` use Google's `TestIds`. Development and preview EAS profiles set `ADS_MODE=test`. Live unit IDs in `src/lib/ads/ad-units.ts` are placeholders. If a live build still contains `XXXXXXXX`, that placement stays off.
+`__DEV__` and any build whose `extra.adsMode` is not `live` use Google's `TestIds`. Development and preview EAS profiles set `ADS_MODE=test`. **Closed testing: no real ads in any build.** While the real unit IDs are commented out in `src/lib/ads/production-unit-ids.js` (`LIVE_AD_UNITS_ENABLED` is false), `production` (`ADS_MODE=live`) also requests Google's `TestIds`. The commented-out units are `shelf_banner` `ca-app-pub-4342572133101591/5889882153`, `article_end_banner` `ca-app-pub-4342572133101591/7526222443`, `save_interstitial` `ca-app-pub-4342572133101591/3978034680`, `study_rewarded` `ca-app-pub-4342572133101591/3387841891`.
+
+To turn on real ads at the public release:
+
+1. In `src/lib/ads/production-unit-ids.js`, delete the line `const PRODUCTION_UNIT_IDS = null;` and uncomment the block under it. That is the only code change.
+2. Keep `ADS_MODE=live` in the `production` profile of `eas.json` (it is already set). `development` and `preview` stay on test units.
+3. Build with the `production` profile. EAS raises `versionCode` automatically, so it is higher than every closed-test build. `app.config.ts` then stops the build if any placement is missing or still a Google test unit.
+4. Upload that AAB for the public release.
+
+ Every build, test mode included, uses the real AdMob Android app ID `ca-app-pub-4342572133101591~7238447832`.
