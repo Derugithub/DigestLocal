@@ -142,7 +142,18 @@ A rewarded ad can turn off banners and full-screen ads for 1 hour. Passes stack 
 
 A build-time flag, `EXPO_PUBLIC_PRO_ENABLED` or `extra.proEnabled`, defaults to off. While it is off, Settings does not offer a purchase and the stored entitlement is ignored. The entitlement module remains in the project for a later build that turns the flag on. Google Play Billing is not connected.
 
-Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode. Do not commit real AdMob app IDs or ad unit IDs. Do not click live ads, and do not ask testers to click them. The privacy policy URL and the support email are set. The placeholders to replace before a production build are the AdMob IDs in `src/lib/ads/ad-units.ts`, `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`), the developer domain in `src/lib/ads/ad-config.ts`, and `docs/monetization/app-ads.txt`.
+Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode, which requests Google's `TestIds` ad units. Do not click live ads, and do not ask testers to click them. The privacy policy URL, the support email, and the developer domain are set.
+
+The real AdMob IDs are set. Every build uses the real Android app ID `ca-app-pub-4342572133101591~7238447832`, as Google recommends together with test ad units. Only `production` (`ADS_MODE=live`) requests these units:
+
+| Placement | Where | Unit ID |
+| --- | --- | --- |
+| `shelf_banner` | Anchored banner under the shelf | `ca-app-pub-4342572133101591/5889882153` |
+| `article_end_banner` | Inline banner at the end of an article | `ca-app-pub-4342572133101591/7526222443` |
+| `save_interstitial` | Interstitial after a save | `ca-app-pub-4342572133101591/3978034680` |
+| `study_rewarded` | Rewarded ad (ad-free pass, quiz questions, extra speeds) | `ca-app-pub-4342572133101591/3387841891` |
+
+The app ID is in `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`) and in the `production` env of `eas.json` as `ADMOB_ANDROID_APP_ID`. The unit IDs are in `src/lib/ads/production-unit-ids.js`. `docs/monetization/app-ads.txt` has the real publisher line.
 
 `docs/monetization/` has the Play Data safety notes, the placement table, and an `app-ads.txt` template. The template has to be hosted at the root of the developer domain, not only inside this repository.
 
@@ -152,7 +163,9 @@ Contributors should use test ads only. `__DEV__` and the `development` and `prev
 
 - `development`: `developmentClient`, `distribution: internal`, and `ADS_MODE=test`
 - `preview`: `distribution: internal` and `ADS_MODE=test`
-- `production`: `autoIncrement` and `ADS_MODE=live`
+- `production`: `autoIncrement`, `ADS_MODE=live`, `ADMOB_ANDROID_APP_ID`, and `buildArtifactPaths` for the R8 `mapping.txt`
+
+`cli.appVersionSource` is `remote`, so EAS keeps the Android `versionCode` on its servers. Each `production` build increments it. `app.json` has no `versionCode`. The version name stays `1.0.0`.
 
 `.github/workflows/build.yml` is a manual workflow (`workflow_dispatch` only). It checks out the repo, uses Node.js 24, sets up EAS with npm and `eas-cache: false`, runs `npm ci`, and starts an Android build:
 
@@ -160,9 +173,9 @@ Contributors should use test ads only. `__DEV__` and the `development` and `prev
 eas build --platform android --profile <preview|development|production> --non-interactive --no-wait
 ```
 
-The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. A production build also needs a real AdMob Android app ID. Until that placeholder in `app.json` is replaced, or `ADMOB_ANDROID_APP_ID` is set, `app.config.ts` stops the production profile.
+The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. `app.config.ts` stops any build whose AdMob Android app ID is missing, a placeholder, or Google's sample ID, and stops a live build when a placement in `src/lib/ads/production-unit-ids.js` has no real unit ID.
 
-`react-native-google-mobile-ads` 17.2.0 reads a root-level `react-native-google-mobile-ads` object in `app.json` while Android configures. That object sits next to `expo`. Its `android_app_id` is what the library's Gradle script turns into `googleMobileAdsJson`. `app.config.ts` resolves the Android app ID for the Expo plugin. On a non-live build it uses Google's sample Android app ID (`ca-app-pub-3940256099942544~3347511713`) when the committed value is still the placeholder. The sample iOS app ID is commented out and kept for a future iOS release. Android is the only ad target for now. EAS Build and local `prebuild` / `run:android` / `run:ios` write the resolved Android ID into the root block before Gradle reads the file, and that rewrite drops the commented iOS lines so Gradle can parse `app.json`. Do not commit that rewrite. A live build still throws while the Android placeholder remains.
+`react-native-google-mobile-ads` 17.2.0 reads a root-level `react-native-google-mobile-ads` object in `app.json` while Android configures. That object sits next to `expo`. Its `android_app_id` is what the library's Gradle script turns into `googleMobileAdsJson`. `app.config.ts` resolves the Android app ID for the Expo plugin: `ADMOB_ANDROID_APP_ID` when set, otherwise the plugin value in `app.json`. It is the real ID in every mode. The sample iOS app ID is commented out and kept for a future iOS release. Android is the only ad target for now. EAS Build and local `prebuild` / `run:android` / `run:ios` write the resolved Android ID into the root block before Gradle reads the file, and that rewrite drops the commented iOS lines so Gradle can parse `app.json`. Do not commit that rewrite.
 
 Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode. Those colors, and the share target, are native configuration. They show up on the next EAS or development build. Search is JavaScript and does not add a native module. Article images add `expo-file-system`. `expo-image` was already a dependency and has to be in the binary to draw the files. A build from before those modules were linked cannot store or show images. The save flow still keeps the text if file storage throws.
 
@@ -178,7 +191,13 @@ Splash background colors are `#F7F2EA` in light mode and `#2A2A2A` in dark mode.
 
 The workflow reads `eas.json` and writes `./build-output/app-<profile>.apk`, or `.aab` when that profile builds an Android App Bundle. In this repository, `development` and `preview` are APKs. `production` is an AAB.
 
-It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downloads the Android keystore from the Expo account with that token. The selected profile's `env` in `eas.json`, including `ADS_MODE`, is applied by the EAS CLI. A production run still stops while the AdMob Android app ID in `app.json` is a placeholder, unless `ADMOB_ANDROID_APP_ID` is set.
+It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downloads the Android keystore from the Expo account with that token. The selected profile's `env` in `eas.json`, including `ADS_MODE`, is applied by the EAS CLI. The workflow uploads the app file only. The R8 `mapping.txt` is embedded in the AAB, so Play reads it from the bundle.
+
+## Release build settings
+
+- R8: `expo-build-properties` sets `enableMinifyInReleaseBuilds` and `enableShrinkResourcesInReleaseBuilds`. The only extra keep rule is `-keep class com.google.android.gms.internal.consent_sdk.** { *; }` for the UMP consent SDK. Expo modules, Reanimated, Worklets, Screens, and Google Mobile Ads ship their own consumer rules. Release builds write `android/app/build/outputs/mapping/release/mapping.txt`. The `production` profile lists it in `buildArtifactPaths`, so an EAS cloud build offers it as an extra download. For a manual upload, Play Console has it under App bundle explorer, the version, Downloads, ReTrace mapping file.
+- Edge-to-edge: Expo SDK 57 draws edge-to-edge by default. There are no status or navigation bar colours in `app.json` or code. `expo-system-ui` sets the root background, and `expo-status-bar` icons follow the theme. Screens pad all four safe-area insets, and the Pro sheet uses translucent system bars with insets.
+- Large screens: `orientation` is `default`, with no orientation lock. Content is capped at 720 px and centred. The Pro sheet is capped at 560 px and scrolls only when the window is too short.
 
 ## Project structure
 
@@ -186,9 +205,10 @@ It uses the same `EXPO_TOKEN` secret as `.github/workflows/build.yml`. EAS downl
 src/app/            Library, add, reader, settings, and the native share redirect
 src/components/     Shared UI, listen, study, incoming share, and the ad banner
 src/lib/            SQLite, fetch, extraction, the study engine, ads, and the entitlement flag
+src/lib/ads/        Ad policy, consent, AdMob app ID resolution, and production unit IDs
 src/theme/          Light and dark palettes
 docs/monetization/  Ad placement notes, Data safety notes, and the app-ads.txt template
-tests/              Extraction, URL, study, and ad-policy tests
+tests/              Extraction, URL, study, ad-policy, and AdMob config tests
 eas.json            EAS build profiles
 .github/workflows/  Manual Android EAS builds (cloud and local)
 ```

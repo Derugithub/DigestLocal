@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PaywallSheet } from '@/components/paywall-sheet';
 import { AppText, Button, IconButton, Note, Screen, Segmented } from '@/components/ui';
@@ -28,6 +29,7 @@ const NETWORK_NOTE =
 export default function SettingsScreen() {
   const router = useRouter();
   const { colors, preference, setPreference } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { isPro, proEnabled, setPro, billing } = useEntitlement();
   const ads = useAds();
   const version = Constants.expoConfig?.version ?? '1.0.0';
@@ -83,7 +85,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}>
         <View style={styles.top}>
           <IconButton icon="chevron-back" label="Back to shelf" onPress={() => router.back()} />
           <AppText variant="label" color={colors.accent}>
@@ -309,7 +311,7 @@ function adsStatusText(ads: AdsContextValue, now: number): string {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingTop: 12, paddingBottom: 48, gap: 18 },
+  content: { paddingTop: 12, gap: 18 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   block: { gap: 10 },
   row: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 14, gap: 8 },

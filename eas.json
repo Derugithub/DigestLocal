@@ -20,8 +20,10 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "ADS_MODE": "live"
-      }
+        "ADS_MODE": "live",
+        "ADMOB_ANDROID_APP_ID": "ca-app-pub-4342572133101591~7238447832"
+      },
+      "buildArtifactPaths": ["android/app/build/outputs/mapping/release/mapping.txt"]
     }
   },
   "submit": {

@@ -1,6 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText, Button, IconButton, LoadingState, Note, Screen } from '@/components/ui';
 import { useAds } from '@/lib/ads/ads-context';
@@ -39,6 +40,7 @@ export default function AddScreen() {
   const ads = useAds();
   const { suppress, release, preloadInterstitial, showInterstitialIfEligible } = ads;
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { db, error: databaseError } = useDatabase();
   const [seed] = useState(() => currentPaste());
   const appliedPaste = useRef(seed?.id ?? 0);
@@ -199,7 +201,7 @@ export default function AddScreen() {
   return (
     <Screen>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom }]}>
           <View style={styles.top}>
             <IconButton icon="chevron-back" label="Back to shelf" onPress={() => router.back()} />
             <AppText variant="label" color={colors.accent}>
@@ -323,7 +325,7 @@ function excerpt(content: string): string {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingTop: 12, paddingBottom: 40, gap: 16 },
+  content: { paddingTop: 12, gap: 16 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   field: { gap: 16 },
   input: {

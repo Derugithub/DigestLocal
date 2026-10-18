@@ -74,4 +74,4 @@ Rewarded shows share a ceiling of 15 per local day, which is 6 ad-free passes, 8
 
 ## Test ads
 
-`__DEV__` and any build whose `extra.adsMode` is not `live` use Google's `TestIds`. Development and preview EAS profiles set `ADS_MODE=test`. Live unit IDs in `src/lib/ads/ad-units.ts` are placeholders. If a live build still contains `XXXXXXXX`, that placement stays off.
+`__DEV__` and any build whose `extra.adsMode` is not `live` use Google's `TestIds`. Development and preview EAS profiles set `ADS_MODE=test`. Only `production` (`ADS_MODE=live`) requests the real units in `src/lib/ads/production-unit-ids.js`: `shelf_banner` `ca-app-pub-4342572133101591/5889882153`, `article_end_banner` `ca-app-pub-4342572133101591/7526222443`, `save_interstitial` `ca-app-pub-4342572133101591/3978034680`, `study_rewarded` `ca-app-pub-4342572133101591/3387841891`. `app.config.ts` stops a live build if any of them is missing. Every build, test mode included, uses the real AdMob Android app ID `ca-app-pub-4342572133101591~7238447832`.

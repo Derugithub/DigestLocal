@@ -1,3 +1,5 @@
+import { PRODUCTION_UNIT_IDS as PRODUCTION_UNIT_ID_VALUES } from './production-unit-ids';
+
 export const AD_PLACEMENTS = ['shelf_banner', 'article_end_banner', 'save_interstitial', 'study_rewarded'] as const;
 
 export type AdPlacement = (typeof AD_PLACEMENTS)[number];
@@ -5,15 +7,10 @@ export type AdPlacement = (typeof AD_PLACEMENTS)[number];
 export type BannerSizeName = 'LARGE_ANCHORED_ADAPTIVE_BANNER' | 'INLINE_ADAPTIVE_BANNER';
 
 /**
- * Production unit IDs. Replace every `XXXXXXXX` segment before a live build.
- * Live mode treats a remaining placeholder as "ads off" and does not crash.
+ * Production unit IDs live in production-unit-ids.js so app.config.ts can stop a live build
+ * when one is missing. At runtime a remaining placeholder still turns that placement off.
  */
-export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = {
-  shelf_banner: 'ca-app-pub-4342572133101591/5889882153',
-  article_end_banner: 'ca-app-pub-4342572133101591/7526222443',
-  save_interstitial: 'ca-app-pub-4342572133101591/3978034680',
-  study_rewarded: 'ca-app-pub-4342572133101591/3387841891',
-};
+export const PRODUCTION_UNIT_IDS: Record<AdPlacement, string> = PRODUCTION_UNIT_ID_VALUES;
 
 /**
  * Google's public test unit IDs, matching `TestIds` in react-native-google-mobile-ads 17.2.0.
