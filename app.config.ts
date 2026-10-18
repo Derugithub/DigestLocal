@@ -1,7 +1,7 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 import { isLiveAdBuild, resolveMobileAdsAppIds, syncRootMobileAdsAppIds } from './src/lib/ads/android-app-id.js';
-import { assertProductionUnitIds } from './src/lib/ads/production-unit-ids.js';
+import { checkLiveAdUnits } from './src/lib/ads/production-unit-ids.js';
 
 function proEnabledFromValue(value: unknown): boolean {
   if (value === true || value === 1) return true;
@@ -13,8 +13,9 @@ function proEnabledFromValue(value: unknown): boolean {
 /**
  * app.json stays the source for everything except the resolved AdMob Android app ID and ads mode.
  * Every build uses the real AdMob Android app ID; only the ad units switch to Google's test units
- * outside live mode. Any build throws if the app ID is missing or invalid, and a live build also
- * throws if a placement has no real unit ID.
+ * outside live mode. Any build throws if the app ID is missing or invalid. During closed testing the
+ * real units are commented out, so every build, production included, uses Google's test units.
+ * Once they are uncommented, a live build throws if a placement has no real unit ID.
  *
  * The Expo plugin options and the root `react-native-google-mobile-ads` block are separate.
  * Gradle reads the root `android_app_id` from disk, so native builds also rewrite that block.
@@ -41,7 +42,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     // iosFromEnv: process.env.ADMOB_IOS_APP_ID,
     // iosFromConfig: typeof options.iosAppId === 'string' ? options.iosAppId : undefined,
   });
-  if (isLiveAdBuild({ profile, adsMode })) assertProductionUnitIds();
+  // Checks unit IDs only once real ad units are uncommented in production-unit-ids.js.
+  checkLiveAdUnits(isLiveAdBuild({ profile, adsMode }));
   syncRootMobileAdsAppIds(ids);
 
   const plugins = (config.plugins ?? []).map((plugin) => {

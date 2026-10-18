@@ -144,7 +144,7 @@ A build-time flag, `EXPO_PUBLIC_PRO_ENABLED` or `extra.proEnabled`, defaults to 
 
 Contributors should use test ads only. `__DEV__` and the `development` and `preview` EAS profiles set test mode, which requests Google's `TestIds` ad units. Do not click live ads, and do not ask testers to click them. The privacy policy URL, the support email, and the developer domain are set.
 
-The real AdMob IDs are set. Every build uses the real Android app ID `ca-app-pub-4342572133101591~7238447832`, as Google recommends together with test ad units. Only `production` (`ADS_MODE=live`) requests these units:
+**Closed testing: no real ads in any build.** Every build, `production` included, requests Google's `TestIds` ad units. Every build uses the real Android app ID `ca-app-pub-4342572133101591~7238447832`, as Google recommends together with test ad units. The real unit IDs are kept, commented out, in `src/lib/ads/production-unit-ids.js`:
 
 | Placement | Where | Unit ID |
 | --- | --- | --- |
@@ -153,7 +153,14 @@ The real AdMob IDs are set. Every build uses the real Android app ID `ca-app-pub
 | `save_interstitial` | Interstitial after a save | `ca-app-pub-4342572133101591/3978034680` |
 | `study_rewarded` | Rewarded ad (ad-free pass, quiz questions, extra speeds) | `ca-app-pub-4342572133101591/3387841891` |
 
-The app ID is in `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`) and in the `production` env of `eas.json` as `ADMOB_ANDROID_APP_ID`. The unit IDs are in `src/lib/ads/production-unit-ids.js`. `docs/monetization/app-ads.txt` has the real publisher line.
+The app ID is in `app.json` (the config plugin `androidAppId` and the root `react-native-google-mobile-ads.android_app_id`) and in the `production` env of `eas.json` as `ADMOB_ANDROID_APP_ID`. `docs/monetization/app-ads.txt` has the real publisher line.
+
+To turn on real ads at the public release:
+
+1. In `src/lib/ads/production-unit-ids.js`, delete the line `const PRODUCTION_UNIT_IDS = null;` and uncomment the block under it. That is the only code change.
+2. Keep `ADS_MODE=live` in the `production` profile of `eas.json` (it is already set). `development` and `preview` stay on test units.
+3. Build with the `production` profile. EAS raises `versionCode` automatically, so it is higher than every closed-test build. `app.config.ts` then stops the build if any placement is missing or still a Google test unit.
+4. Upload that AAB for the public release.
 
 `docs/monetization/` has the Play Data safety notes, the placement table, and an `app-ads.txt` template. The template has to be hosted at the root of the developer domain, not only inside this repository.
 
@@ -163,7 +170,7 @@ The app ID is in `app.json` (the config plugin `androidAppId` and the root `reac
 
 - `development`: `developmentClient`, `distribution: internal`, and `ADS_MODE=test`
 - `preview`: `distribution: internal` and `ADS_MODE=test`
-- `production`: `autoIncrement`, `ADS_MODE=live`, `ADMOB_ANDROID_APP_ID`, and `buildArtifactPaths` for the R8 `mapping.txt`
+- `production`: `autoIncrement`, `ADS_MODE=live`, `ADMOB_ANDROID_APP_ID`, and `buildArtifactPaths` for the R8 `mapping.txt`. `ADS_MODE=live` hides the dev ads readout, but while the real unit IDs are commented out it still requests Google's test units.
 
 `cli.appVersionSource` is `remote`, so EAS keeps the Android `versionCode` on its servers. Each `production` build increments it. `app.json` has no `versionCode`. The version name stays `1.0.0`.
 
@@ -173,7 +180,7 @@ The app ID is in `app.json` (the config plugin `androidAppId` and the root `reac
 eas build --platform android --profile <preview|development|production> --non-interactive --no-wait
 ```
 
-The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. `app.config.ts` stops any build whose AdMob Android app ID is missing, a placeholder, or Google's sample ID, and stops a live build when a placement in `src/lib/ads/production-unit-ids.js` has no real unit ID.
+The workflow needs the `EXPO_TOKEN` secret. The EAS project id is in `app.json` under `extra.eas.projectId`. `app.config.ts` stops any build whose AdMob Android app ID is missing, a placeholder, or Google's sample ID, Once the real unit IDs in `src/lib/ads/production-unit-ids.js` are uncommented, it also stops a live build when a placement has no real unit ID. While they are commented out, that check is skipped and production builds use test units.
 
 `react-native-google-mobile-ads` 17.2.0 reads a root-level `react-native-google-mobile-ads` object in `app.json` while Android configures. That object sits next to `expo`. Its `android_app_id` is what the library's Gradle script turns into `googleMobileAdsJson`. `app.config.ts` resolves the Android app ID for the Expo plugin: `ADMOB_ANDROID_APP_ID` when set, otherwise the plugin value in `app.json`. It is the real ID in every mode. The sample iOS app ID is commented out and kept for a future iOS release. Android is the only ad target for now. EAS Build and local `prebuild` / `run:android` / `run:ios` write the resolved Android ID into the root block before Gradle reads the file, and that rewrite drops the commented iOS lines so Gradle can parse `app.json`. Do not commit that rewrite.
 

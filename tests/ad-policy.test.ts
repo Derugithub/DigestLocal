@@ -24,7 +24,14 @@ import {
 import { emptyAdState, sanitizeAdState, type AdState } from '../src/lib/ads/ad-state.ts';
 import { isProEnabledFrom } from '../src/lib/pro-flag-value.ts';
 import { planQuizOffer } from '../src/lib/quiz-reward.ts';
-import { getUnitId, GOOGLE_TEST_UNIT_IDS, PRODUCTION_UNIT_IDS, resetUnitIdWarnings } from '../src/lib/ads/ad-units.ts';
+import {
+  getUnitId,
+  GOOGLE_TEST_UNIT_IDS,
+  LIVE_AD_UNITS_ENABLED,
+  PRODUCTION_UNIT_IDS,
+  resetUnitIdWarnings,
+  usesTestUnits,
+} from '../src/lib/ads/ad-units.ts';
 import {
   ADMOB_ANDROID_APP_ID,
   ADMOB_ANDROID_APP_ID_PLACEHOLDER,
@@ -34,7 +41,7 @@ import {
   resolveMobileAdsAppIds,
   syncRootMobileAdsAppIds,
 } from '../src/lib/ads/android-app-id.js';
-import { assertProductionUnitIds, missingProductionUnits } from '../src/lib/ads/production-unit-ids.js';
+import { assertProductionUnitIds, checkLiveAdUnits, missingProductionUnits } from '../src/lib/ads/production-unit-ids.js';
 
 const NOW = Date.parse('2026-06-15T15:00:00');
 
@@ -219,7 +226,7 @@ test('ad requests carry only the non-personalized flag', () => {
   assert.equal('neighboringContentUrls' in options, false);
 });
 
-test('getUnitId uses Google test ids in test mode and the real units in live mode', () => {
+test('getUnitId uses Google test ids in every mode while real units are commented out', () => {
   resetUnitIdWarnings();
   const source = readFileSync('node_modules/react-native-google-mobile-ads/src/TestIds.ts', 'utf8');
   assert.match(source, /ADAPTIVE_BANNER: 'ca-app-pub-3940256099942544\/9214589741'/);
@@ -247,23 +254,69 @@ test('getUnitId uses Google test ids in test mode and the real units in live mod
     }),
     'from-library',
   );
-  assert.equal(getUnitId('shelf_banner', { testMode: false }), 'ca-app-pub-4342572133101591/5889882153');
-  assert.equal(getUnitId('article_end_banner', { testMode: false }), 'ca-app-pub-4342572133101591/7526222443');
-  assert.equal(getUnitId('save_interstitial', { testMode: false }), 'ca-app-pub-4342572133101591/3978034680');
-  assert.equal(getUnitId('study_rewarded', { testMode: false }), 'ca-app-pub-4342572133101591/3387841891');
+  for (const placement of ['shelf_banner', 'article_end_banner', 'save_interstitial', 'study_rewarded'] as const) {
+    assert.equal(getUnitId(placement, { testMode: false, liveUnitsEnabled: false }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    if (LIVE_AD_UNITS_ENABLED) {
+      // Public release: a live build requests the real unit.
+      assert.equal(getUnitId(placement, { testMode: false }), PRODUCTION_UNIT_IDS?.[placement]);
+      continue;
+    }
+    // Closed testing: a live (production) build still resolves every placement to a Google test unit.
+    assert.equal(getUnitId(placement, { testMode: false }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    assert.equal(getUnitId(placement, { testMode: false, liveUnitsEnabled: true }), GOOGLE_TEST_UNIT_IDS.android[placement]);
+    assert.equal(
+      getUnitId(placement, { testMode: false, testIds: { [placement]: 'from-library' } }),
+      'from-library',
+    );
+  }
 });
 
-test('production unit ids are all real, and a live build stops when one is missing', () => {
-  assert.deepEqual(missingProductionUnits(), []);
-  assert.doesNotThrow(() => assertProductionUnitIds());
-  for (const id of Object.values(PRODUCTION_UNIT_IDS)) assert.match(id, /^ca-app-pub-4342572133101591\/\d{10}$/);
+test('real ad units stay commented out during closed testing, and production builds still pass', (t) => {
+  if (LIVE_AD_UNITS_ENABLED) {
+    t.diagnostic('real ad units are enabled (public release)');
+    assert.deepEqual(missingProductionUnits(), []);
+    assert.doesNotThrow(() => checkLiveAdUnits(true));
+    assert.equal(usesTestUnits(false), false);
+    return;
+  }
+  assert.equal(LIVE_AD_UNITS_ENABLED, false);
+  assert.equal(PRODUCTION_UNIT_IDS, null);
+  assert.equal(usesTestUnits(false), true);
+  assert.equal(usesTestUnits(true), true);
+
+  // The production build check is skipped while live units are off, so production builds succeed.
+  assert.doesNotThrow(() => checkLiveAdUnits(true));
+  assert.doesNotThrow(() => checkLiveAdUnits(false));
+
+  // The real IDs are kept in the file, commented out, next to the re-enable steps.
+  const source = readFileSync('src/lib/ads/production-unit-ids.js', 'utf8');
+  assert.match(source, /^const PRODUCTION_UNIT_IDS = null;$/m);
+  assert.match(source, /^\/\/ {3}shelf_banner: 'ca-app-pub-4342572133101591\/5889882153',$/m);
+  assert.match(source, /^\/\/ {3}article_end_banner: 'ca-app-pub-4342572133101591\/7526222443',$/m);
+  assert.match(source, /^\/\/ {3}save_interstitial: 'ca-app-pub-4342572133101591\/3978034680',$/m);
+  assert.match(source, /^\/\/ {3}study_rewarded: 'ca-app-pub-4342572133101591\/3387841891',$/m);
+  assert.match(source, /To turn on real ads at the public release/);
+});
+
+test('once real units are enabled, a live build stops when one is missing or a test unit', () => {
+  const real = {
+    shelf_banner: 'ca-app-pub-4342572133101591/5889882153',
+    article_end_banner: 'ca-app-pub-4342572133101591/7526222443',
+    save_interstitial: 'ca-app-pub-4342572133101591/3978034680',
+    study_rewarded: 'ca-app-pub-4342572133101591/3387841891',
+  };
+  assert.deepEqual(missingProductionUnits(real), []);
+  assert.doesNotThrow(() => checkLiveAdUnits(true, true, real));
   const broken = {
-    ...PRODUCTION_UNIT_IDS,
+    ...real,
     article_end_banner: 'ca-app-pub-XXXXXXXX/XXXXXXXX',
     study_rewarded: GOOGLE_TEST_UNIT_IDS.android.study_rewarded,
   };
   assert.deepEqual(missingProductionUnits(broken), ['article_end_banner', 'study_rewarded']);
   assert.throws(() => assertProductionUnitIds(broken), /Missing: article_end_banner, study_rewarded/);
+  assert.throws(() => checkLiveAdUnits(true, true, broken), /Missing: article_end_banner, study_rewarded/);
+  assert.doesNotThrow(() => checkLiveAdUnits(false, true, broken));
+  assert.throws(() => checkLiveAdUnits(true, true, null), /Missing: shelf_banner, article_end_banner, save_interstitial, study_rewarded/);
 });
 
 test('every build mode uses the real Android app id, and a missing or sample id throws', () => {
