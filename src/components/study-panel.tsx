@@ -7,8 +7,8 @@ import { useEntitlement } from '@/lib/entitlement';
 import { saveStudy } from '@/lib/articles';
 import { planQuizOffer, visibleQuizCount } from '@/lib/quiz-reward';
 import { maybeRequestReviewAfterQuiz, noteFullscreenAd } from '@/lib/review-prompt';
-import { freshQuizIfDifferent, getStudyEngine } from '@/lib/study';
-import type { Article, QuizQuestion } from '@/lib/types';
+import { freshQuizIfDifferent, getStudyEngine, rebuildQuiz, rebuildSummary } from '@/lib/study';
+import type { Article, Quiz, QuizQuestion } from '@/lib/types';
 import { formatSavedDate } from '@/lib/text';
 import { useDatabase } from '@/lib/database';
 import { useAppTheme } from '@/theme/preferences';
@@ -28,6 +28,7 @@ export function StudyPanel({
   const { suppress, release, preloadRewarded, showRewarded, recordQuizOfferShown, resetQuizExtra } = ads;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
@@ -119,11 +120,27 @@ export function StudyPanel({
     setError(null);
     try {
       const engine = getStudyEngine();
-      const summary = engine.summarize({ title: article.title, content: article.content });
-      const quiz = engine.buildQuiz({ title: article.title, content: article.content });
+      const input = { title: article.title, content: article.content };
+      let summary: string;
+      let quiz: Quiz;
+      let note: string | undefined;
+      if (article.summary) {
+        // Rebuild: a different summary and unseen questions, keeping what was already shown.
+        const nextSummary = rebuildSummary(input, article.summary, article.quiz?.summaryShown ?? []);
+        const nextQuiz = rebuildQuiz(input, article.quiz);
+        summary = nextSummary.summary;
+        quiz = { ...nextQuiz.quiz, summaryShown: nextSummary.shown };
+        note = [nextSummary.note, nextQuiz.note].filter((item): item is string => Boolean(item)).join(' ') || undefined;
+      } else {
+        // First build: the best-scored summary, remembered so a later Rebuild can pick other sentences.
+        const first = rebuildSummary(input, null);
+        summary = first.summary;
+        quiz = { ...engine.buildQuiz(input), summaryShown: first.shown };
+      }
       await saveStudy(db, article.id, summary, quiz);
       await resetQuizExtra(article.id);
       onChange({ ...article, summary, quiz });
+      setNotice(note ?? null);
       resetQuiz();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not build the summary.');
@@ -154,16 +171,19 @@ export function StudyPanel({
       if (result !== 'unavailable') void noteFullscreenAd();
       if (result !== 'earned') return;
       if (fresh && replacement) {
+        const kept = article.quiz?.summaryShown;
+        const nextQuiz = kept ? { ...replacement, summaryShown: kept } : replacement;
         if (db && article.summary) {
           try {
-            await saveStudy(db, article.id, article.summary, replacement);
+            await saveStudy(db, article.id, article.summary, nextQuiz);
           } catch {
             // The earned reward still replaces the questions on screen.
           }
         }
-        onChange({ ...article, summary: article.summary, quiz: replacement });
+        onChange({ ...article, summary: article.summary, quiz: nextQuiz });
         setCursor(0);
         setCorrectCount(0);
+        setNotice(null);
       } else {
         setCursor(start);
       }
@@ -227,6 +247,12 @@ export function StudyPanel({
           No summary is stored yet. Generating one also writes a quiz into this article.
         </AppText>
       )}
+
+      {notice ? (
+        <AppText variant="meta" color={colors.faint}>
+          {notice}
+        </AppText>
+      ) : null}
 
       {error ? (
         <AppText variant="ui" color={colors.bad}>
