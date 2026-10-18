@@ -96,14 +96,55 @@ export function isQuizWorthySentence(sentence: string): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Near-duplicate detection. Pages often repeat a sentence (pull quotes, captions, teasers),
+// and a cloze question on the same sentence with a different blank reads like a repeat.
+
+/** Jaccard similarity at or above this means two texts say the same thing. */
+const NEAR_DUPLICATE = 0.9;
+
+/** Content words and numbers, lowercased. Numbers count, so "Point 3" and "Point 4" stay different. */
+function fingerprint(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[a-z0-9][a-z0-9'’-]*/g) ?? [];
+  return new Set(words.filter((word) => !STOPWORDS.has(word)));
+}
+
+function similarity(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  if (left.size === 0 || right.size === 0) return 0;
+  let shared = 0;
+  for (const word of left) if (right.has(word)) shared += 1;
+  return shared / (left.size + right.size - shared);
+}
+
+function nearDuplicate(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return similarity(left, right) >= NEAR_DUPLICATE;
+}
+
+/** True when two texts are the same or nearly the same sentence. */
+export function isNearDuplicate(left: string, right: string): boolean {
+  return nearDuplicate(fingerprint(left), fingerprint(right));
+}
+
+function dedupeSentences(sentences: string[]): string[] {
+  const kept: { text: string; words: Set<string> }[] = [];
+  for (const text of sentences) {
+    const words = fingerprint(text);
+    if (kept.some((item) => nearDuplicate(item.words, words))) continue;
+    kept.push({ text, words });
+  }
+  return kept.map((item) => item.text);
+}
+
 function splitSentences(content: string): string[] {
-  return content
-    .split(/\n+/)
-    .flatMap((chunk) =>
-      stripCitations(chunk.replace(/\s+/g, ' ').trim()).split(/(?<=[.!?]["”’)]?)\s+(?=["“‘(]?[A-Z0-9])/),
-    )
-    .map((sentence) => sentence.trim())
-    .filter(isQuizWorthySentence);
+  return dedupeSentences(
+    content
+      .split(/\n+/)
+      .flatMap((chunk) =>
+        stripCitations(chunk.replace(/\s+/g, ' ').trim()).split(/(?<=[.!?]["”’)]?)\s+(?=["“‘(]?[A-Z0-9])/),
+      )
+      .map((sentence) => sentence.trim())
+      .filter(isQuizWorthySentence),
+  );
 }
 
 function contentTokens(text: string): string[] {
@@ -422,6 +463,18 @@ export function quizSizeForPoints(pointCount: number): number {
   return Math.min(MAX_QUIZ_QUESTIONS, Math.max(MIN_QUIZ_QUESTIONS, Math.ceil(pointCount / 2)));
 }
 
+function summaryLength(sentenceCount: number): number {
+  return Math.min(4, Math.max(2, Math.round(sentenceCount * 0.3)));
+}
+
+function joinInOrder(sentences: ScoredSentence[]): string {
+  return sentences
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((sentence) => sentence.text)
+    .join(' ');
+}
+
 export function summarize(input: StudyInput): string {
   const sentences = splitSentences(input.content);
   if (sentences.length === 0) return input.content.trim().slice(0, 600);
@@ -430,16 +483,94 @@ export function summarize(input: StudyInput): string {
   const ranked = scoreSentences(sentences, input.title)
     .slice()
     .sort((a, b) => b.score - a.score);
-  const count = Math.min(4, Math.max(2, Math.round(sentences.length * 0.3)));
-  return ranked
-    .slice(0, count)
-    .sort((a, b) => a.index - b.index)
-    .map((sentence) => sentence.text)
-    .join(' ');
+  return joinInOrder(ranked.slice(0, summaryLength(sentences.length)));
+}
+
+/** Normalized form of a summary sentence, as stored in `Quiz.summaryShown`. */
+export function summarySentenceKey(sentence: string): string {
+  return sentence.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+export type SummaryRebuild = {
+  summary: string;
+  /** Every summary sentence shown for this article so far, including this one (summarySentenceKey values). */
+  shown: string[];
+  /** Set when the summary could not change, or when every sentence has been used and selection starts over. */
+  note?: string;
+};
+
+export const SUMMARY_TOO_SHORT_NOTE = 'This article is too short for a different summary, so it stays the same.';
+export const SUMMARY_CYCLED_NOTE = 'Every sentence has now appeared in a summary, so earlier ones come back.';
+
+/**
+ * A different extractive summary for "Rebuild". It skips the sentences in the summary on screen and,
+ * where it can, every sentence shown in an earlier summary (`history`), taking the best-scored of the
+ * rest. Once nothing unseen is left it starts over (still avoiding the summary on screen) and says so.
+ * When the article has too few sentences to change anything, it returns the same text with a note.
+ */
+export function rebuildSummary(input: StudyInput, current: string | null, history: Iterable<string> = []): SummaryRebuild {
+  const currentText = current?.trim() ?? '';
+  const sentences = splitSentences(input.content);
+  const ranked = scoreSentences(sentences, input.title)
+    .slice()
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const count = summaryLength(sentences.length);
+  const shownBefore = new Set<string>();
+  for (const key of history) if (typeof key === 'string' && key) shownBefore.add(summarySentenceKey(key));
+
+  if (sentences.length <= Math.max(2, count)) {
+    const summary = summarize(input);
+    const same = currentText !== '' && summarySentenceKey(summary) === summarySentenceKey(currentText);
+    return {
+      summary,
+      shown: [...new Set([...shownBefore, ...sentences.map(summarySentenceKey)])],
+      note: same ? SUMMARY_TOO_SHORT_NOTE : undefined,
+    };
+  }
+
+  const currentKey = summarySentenceKey(currentText);
+  const inCurrent = (sentence: ScoredSentence) => currentKey !== '' && currentKey.includes(summarySentenceKey(sentence.text));
+  const seen = (sentence: ScoredSentence) => shownBefore.has(summarySentenceKey(sentence.text));
+
+  let cycled = false;
+  let unseen = ranked.filter((sentence) => !inCurrent(sentence) && !seen(sentence));
+  if (unseen.length === 0) {
+    cycled = true;
+    unseen = ranked.filter((sentence) => !inCurrent(sentence));
+  }
+  const picked: ScoredSentence[] = unseen.slice(0, count);
+  // Top up with seen sentences that are not on screen, then with on-screen ones, keeping the length.
+  for (const pool of [ranked.filter((sentence) => !inCurrent(sentence)), ranked]) {
+    for (const sentence of pool) {
+      if (picked.length >= count) break;
+      if (!picked.includes(sentence)) picked.push(sentence);
+    }
+  }
+  const summary = joinInOrder(picked);
+  const pickedKeys = picked.map((sentence) => summarySentenceKey(sentence.text));
+  const currentKeys = ranked.filter(inCurrent).map((sentence) => summarySentenceKey(sentence.text));
+  const shown = cycled ? [...new Set([...currentKeys, ...pickedKeys])] : [...new Set([...shownBefore, ...currentKeys, ...pickedKeys])];
+  const same = summarySentenceKey(summary) === currentKey;
+  return { summary, shown, note: same ? SUMMARY_TOO_SHORT_NOTE : cycled ? SUMMARY_CYCLED_NOTE : undefined };
 }
 
 export function quizQuestionKey(prompt: string, answer: string): string {
   return `${prompt.trim().toLowerCase()}\n${answer.trim().toLowerCase()}`;
+}
+
+/**
+ * Words of the sentence a question is about, with the blank filled back in, so two cloze questions on
+ * the same sentence (different blanks) match. The shared question stem is left out.
+ */
+function questionFingerprint(prompt: string, answer: string): Set<string> {
+  const quoted = prompt.match(/“([^”]*)”/);
+  const body = (quoted?.[1] ?? prompt).replace(/_{2,}/g, ' ');
+  return fingerprint(`${body} ${answer}`);
+}
+
+function fingerprintOfKey(key: string): Set<string> {
+  const split = key.lastIndexOf('\n');
+  return split < 0 ? fingerprint(key) : questionFingerprint(key.slice(0, split), key.slice(split + 1));
 }
 
 function keyOf(question: QuizQuestion): string {
@@ -461,6 +592,8 @@ export function buildQuiz(
     exclude?: ReadonlySet<string>;
     /** Changes which term is picked and how choices are shuffled; 0 is the default set. */
     seed?: number;
+    /** Also skip questions about the same sentence as an excluded question (a different blank reads as a repeat). */
+    avoidSimilar?: boolean;
   },
 ): Quiz {
   const sentences = splitSentences(input.content);
@@ -476,14 +609,21 @@ export function buildQuiz(
   const selected: DraftQuestion[] = [];
   const usedSentences = new Set<number>();
   const usedAnswers = new Set<string>();
+  const usedPrints: Set<string>[] = [];
+  const excludedPrints = options?.avoidSimilar && exclude ? [...exclude].map(fingerprintOfKey) : [];
   const accept = (draft: DraftQuestion | null): boolean => {
     if (!draft) return false;
     if (exclude?.has(quizQuestionKey(draft.prompt, draft.answer))) return false;
     if (usedSentences.has(draft.sentenceIndex) || usedAnswers.has(termKey(draft.answer))) return false;
     if (draft.distractors.length < 2) return false;
+    const print = questionFingerprint(draft.prompt, draft.answer);
+    // Never two near-identical questions in one set, and with avoidSimilar none like an earlier one.
+    if (usedPrints.some((other) => nearDuplicate(other, print))) return false;
+    if (excludedPrints.some((other) => nearDuplicate(other, print))) return false;
     selected.push(draft);
     usedSentences.add(draft.sentenceIndex);
     usedAnswers.add(termKey(draft.answer));
+    usedPrints.push(print);
     return true;
   };
 
@@ -542,16 +682,47 @@ export function freshQuizIfDifferent(
   askedKeys?: Iterable<string>,
 ): Quiz | null {
   if (previous.length === 0) return null;
-  const exclude = new Set<string>([...previous.map(keyOf), ...(askedKeys ?? [])]);
-  for (let seed = 0; seed < 4; seed += 1) {
-    const next = buildQuiz(input, now, { exclude, seed });
-    const novel = next.questions.filter((question) => !exclude.has(keyOf(question)));
-    if (novel.length === 0) continue;
-    const questions = novel.map((question, index) => ({ ...question, id: `q${index + 1}` }));
-    if (sameQuizSet(previous, questions)) continue;
-    return { ...next, questions, asked: [...exclude, ...questions.map(keyOf)] };
+  const exclude = new Set<string>([...previous.map(keyOf), ...[...(askedKeys ?? [])].filter((key) => typeof key === 'string')]);
+  // First try sets about sentences not asked before; only then allow a new blank in an asked sentence.
+  for (const avoidSimilar of [true, false]) {
+    for (let seed = 0; seed < 4; seed += 1) {
+      const next = buildQuiz(input, now, { exclude, seed, avoidSimilar });
+      const novel = next.questions.filter((question) => !exclude.has(keyOf(question)));
+      if (novel.length === 0) continue;
+      const questions = novel.map((question, index) => ({ ...question, id: `q${index + 1}` }));
+      if (sameQuizSet(previous, questions)) continue;
+      return { ...next, questions, asked: [...exclude, ...questions.map(keyOf)] };
+    }
   }
   return null;
+}
+
+export const QUIZ_CYCLED_NOTE = 'You have seen every question this article can make, so some come back.';
+
+/**
+ * The quiz for "Rebuild". It keeps the asked history and prefers questions never shown for this article.
+ * When every question has been asked it starts the history over, still avoiding the set on screen where
+ * possible, and returns a note. Summary history on the previous quiz is carried over.
+ */
+export function rebuildQuiz(input: StudyInput, previous: Quiz | null, now = new Date()): { quiz: Quiz; note?: string } {
+  const carry = previous?.summaryShown ? { summaryShown: previous.summaryShown } : {};
+  const previousQuestions = previous?.questions ?? [];
+  if (previousQuestions.length === 0) {
+    return { quiz: { ...buildQuiz(input, now), ...carry } };
+  }
+  const fresh = freshQuizIfDifferent(input, previousQuestions, now, previous?.asked);
+  if (fresh) return { quiz: { ...fresh, ...carry } };
+
+  // Everything has been asked. Start over, but not with the exact set on screen if another one exists.
+  const onScreen = new Set(previousQuestions.map(keyOf));
+  for (let seed = 1; seed <= 4; seed += 1) {
+    const next = buildQuiz(input, now, { seed, exclude: onScreen });
+    if (next.questions.length > 0 && !sameQuizSet(previousQuestions, next.questions)) {
+      return { quiz: { ...next, ...carry }, note: QUIZ_CYCLED_NOTE };
+    }
+  }
+  const again = buildQuiz(input, now);
+  return { quiz: { ...again, ...carry }, note: again.questions.length > 0 ? QUIZ_CYCLED_NOTE : undefined };
 }
 
 export const heuristicEngine: StudyEngine = {

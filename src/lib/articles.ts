@@ -29,7 +29,10 @@ function parseQuiz(raw: string | null): Quiz | null {
   try {
     const parsed = JSON.parse(raw) as Quiz;
     if (!parsed || !Array.isArray(parsed.questions)) return null;
-    return parsed;
+    // Histories are optional and may be missing or malformed in older rows.
+    const strings = (value: unknown): string[] | undefined =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined;
+    return { ...parsed, asked: strings(parsed.asked), summaryShown: strings(parsed.summaryShown) };
   } catch {
     return null;
   }

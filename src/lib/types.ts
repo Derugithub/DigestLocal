@@ -15,6 +15,8 @@ export type Quiz = {
   questions: QuizQuestion[];
   /** quizQuestionKey(prompt, answer) of every question shown for this article, so reward sets never repeat. */
   asked?: string[];
+  /** summarySentenceKey() of every sentence shown in a summary for this article, so Rebuild picks different ones. */
+  summaryShown?: string[];
   note?: string;
 };
 
