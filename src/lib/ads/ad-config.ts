@@ -5,7 +5,8 @@
  */
 export const AD_DEFAULTS = {
   adsEnabled: true,
-  requestNonPersonalizedAdsOnly: true,
+  /** Consent decides this per user (see consent-logic.ts); the default never forces non-personalized ads. */
+  requestNonPersonalizedAdsOnly: false,
   sessionGapMinutes: 30, // warm resume only; every cold start is already a new session
   minSessionForAds: 2,
   minSavedForAds: 1,
@@ -168,7 +169,7 @@ function clamp(value: number, min: number, max: number): number {
  * Applies a remote JSON object onto the defaults.
  * Caps move only toward stricter-or-equal values, then into the sane range.
  * Unimplemented surfaces (back-nav, app open, native, collapsible) stay off.
- * Personalized ads cannot be turned on from remote config.
+ * Remote config cannot change `requestNonPersonalizedAdsOnly`; the user's consent decides it.
  */
 export function clampRemoteOverride(input: unknown, defaults: AdConfig = adConfigFromDefaults()): AdConfig {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -193,7 +194,7 @@ export function clampRemoteOverride(input: unknown, defaults: AdConfig = adConfi
   if (typeof source.adsEnabled === 'boolean') {
     next.adsEnabled = defaults.adsEnabled ? source.adsEnabled : false;
   }
-  next.requestNonPersonalizedAdsOnly = true;
+  next.requestNonPersonalizedAdsOnly = defaults.requestNonPersonalizedAdsOnly;
 
   if (typeof source.shelfBannerEnabled === 'boolean') {
     next.shelfBannerEnabled = defaults.shelfBannerEnabled ? source.shelfBannerEnabled : false;

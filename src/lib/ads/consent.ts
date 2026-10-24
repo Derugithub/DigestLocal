@@ -1,6 +1,7 @@
 import type { AdsConsentInfo, AdsConsentInfoOptions } from 'react-native-google-mobile-ads';
 
 import { TEST_DEVICE_IDENTIFIERS } from '@/lib/ads/ad-config';
+import { shouldRequestNonPersonalizedOnly } from '@/lib/ads/consent-logic';
 
 function sdk() {
   // Session 1 and Pro never reach this. A static import would execute the native module anyway.
@@ -19,6 +20,23 @@ export async function readConsent(): Promise<AdsConsentInfo> {
 export function privacyOptionsRequired(info: AdsConsentInfo): boolean {
   const { AdsConsentPrivacyOptionsRequirementStatus } = sdk();
   return info.privacyOptionsRequirementStatus === AdsConsentPrivacyOptionsRequirementStatus.REQUIRED;
+}
+
+/**
+ * True only when the user gave consent in a region that requires it and declined personalized ads.
+ * Everywhere else the request keeps the SDK default.
+ */
+export async function isNonPersonalizedOnly(info: AdsConsentInfo): Promise<boolean> {
+  const { AdsConsent, AdsConsentStatus } = sdk();
+  let selectPersonalisedAds: boolean | null = null;
+  if (info.canRequestAds && info.status === AdsConsentStatus.OBTAINED) {
+    try {
+      selectPersonalisedAds = (await AdsConsent.getUserChoices()).selectPersonalisedAds;
+    } catch {
+      selectPersonalisedAds = null;
+    }
+  }
+  return shouldRequestNonPersonalizedOnly(info.status, selectPersonalisedAds);
 }
 
 export async function isPrivacyOptionsRequired(): Promise<boolean> {

@@ -24,7 +24,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 const NETWORK_NOTE =
-  'Your saved articles never leave your device. DigestLocal has no account and no cloud library. When you save a page, the app downloads that page and its images once. Reading, listening, summaries, and quizzes use the copy on this device and do not download images again.\n\nAds are loaded from Google AdMob and never receive your article text, saved links, or quiz results. We request non-personalized ads by default.';
+  'Your saved articles never leave your device. DigestLocal has no account and no cloud library. When you save a page, the app downloads that page and its images once. Reading, listening, summaries, and quizzes use the copy on this device and do not download images again.\n\nAds are loaded from Google AdMob and never receive your article text, saved links, or quiz results. Where the law requires your consent (the EEA and UK), ads follow the choices you make under Privacy options. Elsewhere, ads can be personalized.';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -81,7 +81,7 @@ export default function SettingsScreen() {
   const adFreeReady = ads.canOfferRewarded('ad_free') && ads.rewardedLoaded;
 
   const showPaywall = proEnabled && ads.config.paywallEnabled && billingAvailable && !isPro;
-  const showPrivacyChoices = !isPro && (ads.privacyOptionsRequired || ads.ready);
+  const showPrivacyChoices = !isPro && ads.privacyOptionsRequired;
 
   return (
     <Screen>
@@ -116,7 +116,7 @@ export default function SettingsScreen() {
           ) : null}
           {showPrivacyChoices ? (
             <Button
-              label={ads.privacyOptionsRequired ? 'Privacy options' : 'Ad privacy choices'}
+              label="Privacy options"
               variant="secondary"
               onPress={() => void ads.showPrivacyOptions()}
             />
