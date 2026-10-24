@@ -24,6 +24,10 @@ export function privacyOptionsRequired(): boolean {
   return false;
 }
 
+export async function isNonPersonalizedOnly(): Promise<boolean> {
+  return false;
+}
+
 export async function isPrivacyOptionsRequired(): Promise<boolean> {
   return false;
 }

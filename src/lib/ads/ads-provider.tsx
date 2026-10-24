@@ -161,7 +161,14 @@ export function AdsProvider({ children }: { children: ReactNode }) {
   const params = useGlobalSearchParams<{ source?: string | string[] }>();
   const source = Array.isArray(params.source) ? params.source[0] : params.source;
 
-  const [config, setConfig] = useState<AdConfig>(adConfigFromDefaults);
+  const [remoteConfig, setConfig] = useState<AdConfig>(adConfigFromDefaults);
+  const [nonPersonalizedOnly, setNonPersonalizedOnly] = useState(false);
+  // Requests follow the user's consent: non-personalized only when they declined personalization
+  // in a region that required consent. Everyone else keeps the SDK default.
+  const config = useMemo<AdConfig>(
+    () => ({ ...remoteConfig, requestNonPersonalizedAdsOnly: remoteConfig.requestNonPersonalizedAdsOnly || nonPersonalizedOnly }),
+    [remoteConfig, nonPersonalizedOnly],
+  );
   const [adState, setAdState] = useState<AdState | null>(null);
   const [booted, setBooted] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
@@ -396,7 +403,13 @@ export function AdsProvider({ children }: { children: ReactNode }) {
           if (initRef.current === 'running') initRef.current = 'idle';
           return;
         }
+        const nonPersonalized = await consent.isNonPersonalizedOnly(info);
+        if (stale()) {
+          if (initRef.current === 'running') initRef.current = 'idle';
+          return;
+        }
         setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
+        setNonPersonalizedOnly(nonPersonalized);
         setCanRequestAds(info.canRequestAds);
         canRequestRef.current = info.canRequestAds;
         setConsentStatus(info.status);
@@ -893,6 +906,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     try {
       const consent = await import('@/lib/ads/consent');
       const info = await consent.showPrivacyOptions();
+      setNonPersonalizedOnly(await consent.isNonPersonalizedOnly(info));
       setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
       setCanRequestAds(info.canRequestAds);
       canRequestRef.current = info.canRequestAds && !proRef.current;
@@ -914,6 +928,7 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     try {
       const consent = await import('@/lib/ads/consent');
       const info = await consent.showConsentFormDebugEea();
+      setNonPersonalizedOnly(await consent.isNonPersonalizedOnly(info));
       setPrivacyOptionsRequired(consent.privacyOptionsRequired(info));
       setCanRequestAds(info.canRequestAds);
       canRequestRef.current = info.canRequestAds && !proRef.current;

@@ -7,7 +7,7 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 | Key | Value |
 | --- | --- |
 | adsEnabled | true |
-| requestNonPersonalizedAdsOnly | true |
+| requestNonPersonalizedAdsOnly | false (set per user: true only when they gave consent in a region that required it and declined personalization) |
 | sessionGapMinutes | 30 |
 | minSessionForAds | 2 |
 | minSavedForAds | 1 |
@@ -38,7 +38,7 @@ Defaults live in `src/lib/ads/ad-config.ts` (`AD_DEFAULTS`). Remote JSON, when `
 
 Session 1 does not gather consent, initialize the Mobile Ads SDK, or show ads. Every cold start counts as a new session. A warm resume, when the process stayed alive, starts a new session only after `sessionGapMinutes` in the background (default 30). Remote config may set that gap as low as 1 minute.
 
-Every ad request sets `requestNonPersonalizedAdsOnly` and nothing else. Article text, saved links, and quiz results are not attached.
+Every ad request sets `requestNonPersonalizedAdsOnly` and nothing else. It is true only when the user gave consent in a region that required it (UMP status `OBTAINED`) and did not allow personalized ads; where no consent is required the SDK default applies. Remote config cannot change it. Article text, saved links, and quiz results are not attached.
 
 ## Global gate
 

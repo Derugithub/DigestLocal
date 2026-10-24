@@ -184,7 +184,7 @@ test('remote overrides only get stricter, and unimplemented formats stay off', (
     interstitialEveryNSaves: 2,
     minSessionForAds: 1,
     adsEnabled: false,
-    requestNonPersonalizedAdsOnly: false,
+    requestNonPersonalizedAdsOnly: true,
     backNavInterstitialEnabled: true,
     appOpenEnabled: true,
     shelfFormat: 'native',
@@ -197,7 +197,8 @@ test('remote overrides only get stricter, and unimplemented formats stay off', (
   assert.equal(clamped.interstitialEveryNSaves, AD_DEFAULTS.interstitialEveryNSaves);
   assert.equal(clamped.minSessionForAds, AD_DEFAULTS.minSessionForAds);
   assert.equal(clamped.adsEnabled, false);
-  assert.equal(clamped.requestNonPersonalizedAdsOnly, true);
+  assert.equal(clamped.requestNonPersonalizedAdsOnly, AD_DEFAULTS.requestNonPersonalizedAdsOnly);
+  assert.equal(clamped.requestNonPersonalizedAdsOnly, false);
   assert.equal(clamped.backNavInterstitialEnabled, false);
   assert.equal(clamped.appOpenEnabled, false);
   assert.equal(clamped.shelfFormat, 'banner');
@@ -220,7 +221,10 @@ test('remote overrides only get stricter, and unimplemented formats stay off', (
 
 test('ad requests carry only the non-personalized flag', () => {
   const options = adRequestOptions({ ...AD_DEFAULTS } satisfies AdConfig);
-  assert.deepEqual(options, { requestNonPersonalizedAdsOnly: true });
+  assert.deepEqual(options, { requestNonPersonalizedAdsOnly: false });
+  assert.deepEqual(adRequestOptions({ ...AD_DEFAULTS, requestNonPersonalizedAdsOnly: true }), {
+    requestNonPersonalizedAdsOnly: true,
+  });
   assert.equal('contentUrl' in options, false);
   assert.equal('keywords' in options, false);
   assert.equal('neighboringContentUrls' in options, false);
