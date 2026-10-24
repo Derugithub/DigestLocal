@@ -19,7 +19,7 @@ Users can reset or delete the advertising ID in Android settings.
 
 ## Not collected
 
-Article text, saved URLs, titles, summaries, and quiz results stay on the device. They are not sent to AdMob. Ad requests do not include `contentUrl`, `neighboringContentUrls`, or `keywords`. The app requests non-personalized ads by default.
+Article text, saved URLs, titles, summaries, and quiz results stay on the device. They are not sent to AdMob. Ad requests do not include `contentUrl`, `neighboringContentUrls`, or `keywords`. Ads follow the Google UMP consent result. They are personalized unless the user declined personalized ads in a region where consent is required (the EEA and UK); only then does the app request non-personalized ads. Where consent is not required, the SDK default (personalized) applies.
 
 The page fetch goes to the site the user chose. DigestLocal's developer does not receive that page.
 

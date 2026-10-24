@@ -134,7 +134,7 @@ Settings offers System, Light, and Dark. System follows the device color scheme.
 
 Saved articles stay on the device. DigestLocal has no account and no cloud library. Reading, listening, summaries, and quizzes use that saved copy.
 
-From the second session, after at least one article is saved, the app can load ads with Google AdMob and the User Messaging Platform (UMP) consent form. The first session does not initialize either SDK and does not show ads. Requests ask for non-personalized ads. Article text, saved links, and quiz results are not sent with an ad request.
+From the second session, after at least one article is saved, the app can load ads with Google AdMob and the User Messaging Platform (UMP) consent form. The first session does not initialize either SDK and does not show ads. Ads follow the UMP consent result: they are personalized unless the user declined personalized ads in a region where consent is required, and only then do requests ask for non-personalized ads. Article text, saved links, and quiz results are not sent with an ad request.
 
 Settings links to the privacy policy at https://derugithub.github.io/Privacy-policy/digestlocal/ and to support at movadmob@gmail.com.
 
